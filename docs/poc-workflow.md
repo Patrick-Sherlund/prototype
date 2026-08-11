@@ -62,7 +62,7 @@ Put local n8n secrets in `.env`, copied from `.env.example`. Do not commit `.env
 | Name | Destination | Sensitive | Purpose |
 | --- | --- | --- | --- |
 | `N8N_ENCRYPTION_KEY` | `.env` | Yes | Stable n8n credential encryption key |
-| `WEBHOOK_URL` | `.env` | No | Public tunnel base URL for n8n production webhooks |
+| `N8N_WEBHOOK_URL` | `.env` | No | Public tunnel base URL for n8n production webhooks |
 | `SLACK_SIGNING_SECRET` | `.env` | Yes | Verify Slack Events API signatures |
 | `SLACK_BOT_TOKEN` | `.env` | Yes | Reply to Slack threads |
 | `JIRA_AUTH_HEADER` | `.env` | Yes | Jira Basic auth header for REST API |
@@ -126,7 +126,7 @@ docker compose down -v
 
 ## Tunnel
 
-Slack must reach local n8n. Use a free tunnel and put its HTTPS origin in `.env` as `WEBHOOK_URL`.
+Slack must reach local n8n. Use a free tunnel and put its HTTPS origin in `.env` as `N8N_WEBHOOK_URL`.
 
 Preferred:
 
@@ -137,7 +137,7 @@ cloudflared tunnel --url http://localhost:5678
 Use the printed `https://...trycloudflare.com` value as:
 
 ```text
-WEBHOOK_URL=https://...trycloudflare.com
+N8N_WEBHOOK_URL=https://...trycloudflare.com
 ```
 
 Slack request URL:
@@ -172,7 +172,7 @@ Create a Slack app in the `Sysco-Demo` workspace.
 12. Invite the app to channel `C0BP62TK3PD`.
 13. Go to `Event Subscriptions`.
 14. Enable events.
-15. Enter the n8n request URL: `<WEBHOOK_URL>/webhook/poc/slack/request`.
+15. Enter the n8n request URL: `<N8N_WEBHOOK_URL>/webhook/poc/slack/request`.
 16. Subscribe to bot event: `message.channels`.
 17. Save changes and reinstall the app if Slack prompts for reinstall.
 
@@ -260,7 +260,7 @@ This uses Claude Code OAuth for CI. Do not substitute `ANTHROPIC_API_KEY` unless
 ## Demo Procedure
 
 1. Start the tunnel.
-2. Update `.env` `WEBHOOK_URL` if the tunnel URL changed.
+2. Update `.env` `N8N_WEBHOOK_URL` if the tunnel URL changed.
 3. Start n8n with `docker compose up -d`.
 4. Import and activate workflows.
 5. Confirm GitHub Actions secrets and Pages settings.
@@ -287,7 +287,7 @@ Expected result:
 ## Troubleshooting
 
 - `SLACK_RECEIVED failed`: check Slack signing secret, webhook URL, tunnel, and system clock.
-- Slack URL verification fails: confirm workflow is active and `WEBHOOK_URL` points to the tunnel origin.
+- Slack URL verification fails: confirm workflow is active and `N8N_WEBHOOK_URL` points to the tunnel origin.
 - `JIRA_VALIDATED failed`: check Jira auth header, issue key, and project permissions.
 - `GITHUB_DISPATCHED failed`: check fine-grained token repository and `Actions: Read and write`.
 - `CLAUDE_STARTED failed`: check `CLAUDE_CODE_OAUTH_TOKEN` GitHub Actions secret.

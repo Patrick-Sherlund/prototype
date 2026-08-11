@@ -1,8 +1,10 @@
+const env = (name) => $env[name];
+
 async function postSlack(channel, threadTs, text) {
   const response = await fetch('https://slack.com/api/chat.postMessage', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+      Authorization: `Bearer ${env('SLACK_BOT_TOKEN')}`,
       'Content-Type': 'application/json; charset=utf-8',
     },
     body: JSON.stringify({
@@ -20,10 +22,10 @@ async function postSlack(channel, threadTs, text) {
 
 const input = $input.first().json;
 if (!input.authorized) return [{ json: input }];
-if (!process.env.SLACK_BOT_TOKEN) throw new Error('SLACK_COMPLETED failed: SLACK_BOT_TOKEN is not configured');
+if (!env('SLACK_BOT_TOKEN')) throw new Error('SLACK_COMPLETED failed: SLACK_BOT_TOKEN is not configured');
 
 const success = input.status === 'success';
-const jiraUrl = input.jira_issue_url || `${process.env.JIRA_BASE_URL?.replace(/\/$/, '') || ''}/browse/${input.jira_issue_key}`;
+const jiraUrl = input.jira_issue_url || `${env('JIRA_BASE_URL')?.replace(/\/$/, '') || ''}/browse/${input.jira_issue_key}`;
 const text = success
   ? `${input.jira_issue_key} prototype update ready\n\nPrototype: ${input.preview_url}\nPull Request: ${input.pr_url}\nJira: ${jiraUrl}\n\nBuild: ${input.build_result === 'success' ? 'Passed' : input.build_result}\nCorrelation: ${input.correlation_id}`
   : `${input.jira_issue_key} prototype automation failed\n\nStage: ${input.stage || 'unknown'}\nRun: ${input.run_url || 'unknown'}\nJira: ${jiraUrl}\nBuild: ${input.build_result || 'failed'}\nCorrelation: ${input.correlation_id}\nError: ${input.error_message || 'Unknown error'}`;

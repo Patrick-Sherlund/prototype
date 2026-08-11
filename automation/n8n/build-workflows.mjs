@@ -81,6 +81,7 @@ function connect(names) {
 }
 
 const slackRequest = {
+  id: 'pocSlackRequest',
   name: 'POC A - Slack Request to Claude Prototype',
   nodes: [
     webhookNode('slack-event-webhook', 'Slack Event Webhook', 'poc/slack/request', [0, 0]),
@@ -111,6 +112,7 @@ const slackRequest = {
 };
 
 const githubCompletion = {
+  id: 'pocGithubCompletion',
   name: 'POC B - GitHub Completion to Jira and Slack',
   nodes: [
     webhookNode('github-completion-webhook', 'GitHub Completion Webhook', 'poc/github/completion', [0, 0]),
@@ -145,7 +147,7 @@ const outputs = [
 
 if (process.argv.includes('--check')) {
   for (const name of codeFiles) {
-    new AsyncFunction('$input', '$getWorkflowStaticData', 'fetch', 'console', 'process', 'require', code(name));
+    new AsyncFunction('$input', '$getWorkflowStaticData', '$env', 'fetch', 'console', 'require', code(name));
     console.log(`Validated code/${name}`);
   }
   for (const [name, workflow] of outputs) {

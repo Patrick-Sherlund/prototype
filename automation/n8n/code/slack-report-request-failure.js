@@ -1,8 +1,10 @@
+const env = (name) => $env[name];
+
 async function postSlack(channel, threadTs, text) {
   const response = await fetch('https://slack.com/api/chat.postMessage', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+      Authorization: `Bearer ${env('SLACK_BOT_TOKEN')}`,
       'Content-Type': 'application/json; charset=utf-8',
     },
     body: JSON.stringify({
@@ -21,7 +23,7 @@ async function postSlack(channel, threadTs, text) {
 const input = $input.first().json;
 if (!input.requestFailed || !input.slackChannelId || !input.slackThreadTs) return [{ json: input }];
 
-if (!process.env.SLACK_BOT_TOKEN) {
+if (!env('SLACK_BOT_TOKEN')) {
   throw new Error('Failure reporting needs SLACK_BOT_TOKEN, but it is not configured');
 }
 

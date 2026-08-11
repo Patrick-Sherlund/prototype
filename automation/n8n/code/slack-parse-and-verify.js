@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const env = (name) => $env[name];
 
 function header(headers, name) {
   const match = Object.entries(headers || {}).find(([key]) => key.toLowerCase() === name.toLowerCase());
@@ -30,7 +31,7 @@ function makeCorrelation(issueKey, eventId, ts) {
 const item = $input.first();
 const headers = item.json.headers || {};
 const rawBody = rawBodyFrom(item);
-const signingSecret = process.env.SLACK_SIGNING_SECRET;
+const signingSecret = env('SLACK_SIGNING_SECRET');
 
 if (!signingSecret) {
   throw new Error('SLACK_RECEIVED failed: SLACK_SIGNING_SECRET is not configured');
@@ -72,7 +73,7 @@ if (body.type === 'url_verification') {
 
 const event = body.event || {};
 const retryNum = header(headers, 'x-slack-retry-num');
-const configuredChannelId = process.env.SLACK_CHANNEL_ID;
+const configuredChannelId = env('SLACK_CHANNEL_ID');
 const text = normalizeText(event.text);
 const issueMatch = text.match(/\bSYSCO-\d+\b/i);
 const slackThreadTs = event.thread_ts || event.ts;

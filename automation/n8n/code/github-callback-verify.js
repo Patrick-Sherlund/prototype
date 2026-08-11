@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const env = (name) => $env[name];
 
 function header(headers, name) {
   const match = Object.entries(headers || {}).find(([key]) => key.toLowerCase() === name.toLowerCase());
@@ -12,7 +13,7 @@ function safeCompare(a, b) {
 }
 
 const item = $input.first();
-const expectedSecret = process.env.N8N_CALLBACK_SECRET;
+const expectedSecret = env('N8N_CALLBACK_SECRET');
 const providedSecret = header(item.json.headers, 'x-poc-callback-secret');
 
 if (!expectedSecret) {

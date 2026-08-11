@@ -1,3 +1,5 @@
+const env = (name) => $env[name];
+
 function docParagraphs(lines) {
   return {
     type: 'doc',
@@ -18,10 +20,10 @@ function chooseReviewTransition(transitions) {
 }
 
 async function jiraFetch(path, options = {}) {
-  const response = await fetch(`${process.env.JIRA_BASE_URL.replace(/\/$/, '')}${path}`, {
+  const response = await fetch(`${env('JIRA_BASE_URL').replace(/\/$/, '')}${path}`, {
     ...options,
     headers: {
-      Authorization: process.env.JIRA_AUTH_HEADER,
+      Authorization: env('JIRA_AUTH_HEADER'),
       Accept: 'application/json',
       'Content-Type': 'application/json',
       ...(options.headers || {}),
@@ -44,11 +46,11 @@ const input = $input.first().json;
 if (!input.authorized) return [{ json: input }];
 
 try {
-  if (!process.env.JIRA_BASE_URL || !process.env.JIRA_AUTH_HEADER) {
+  if (!env('JIRA_BASE_URL') || !env('JIRA_AUTH_HEADER')) {
     throw new Error('Missing JIRA_BASE_URL or JIRA_AUTH_HEADER');
   }
   const issueKey = input.jira_issue_key;
-  const jiraIssueUrl = `${process.env.JIRA_BASE_URL.replace(/\/$/, '')}/browse/${issueKey}`;
+  const jiraIssueUrl = `${env('JIRA_BASE_URL').replace(/\/$/, '')}/browse/${issueKey}`;
   const success = input.status === 'success';
   const lines = success
     ? [

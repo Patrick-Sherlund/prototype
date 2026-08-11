@@ -1,5 +1,7 @@
+const env = (name) => $env[name];
+
 function requiredEnv(names) {
-  const missing = names.filter((name) => !process.env[name]);
+  const missing = names.filter((name) => !env(name));
   if (missing.length) throw new Error(`Missing environment variable(s): ${missing.join(', ')}`);
 }
 
@@ -33,11 +35,11 @@ function chooseActiveTransition(transitions) {
 }
 
 async function jiraFetch(path, options = {}) {
-  const baseUrl = process.env.JIRA_BASE_URL.replace(/\/$/, '');
+  const baseUrl = env('JIRA_BASE_URL').replace(/\/$/, '');
   const response = await fetch(`${baseUrl}${path}`, {
     ...options,
     headers: {
-      Authorization: process.env.JIRA_AUTH_HEADER,
+      Authorization: env('JIRA_AUTH_HEADER'),
       Accept: 'application/json',
       'Content-Type': 'application/json',
       ...(options.headers || {}),
@@ -63,8 +65,8 @@ if (!input.shouldProcess) return [{ json: input }];
 
 try {
   requiredEnv(['JIRA_BASE_URL', 'JIRA_PROJECT_KEY', 'JIRA_AUTH_HEADER']);
-  if (!input.jiraIssueKey.startsWith(`${process.env.JIRA_PROJECT_KEY}-`)) {
-    throw new Error(`Issue ${input.jiraIssueKey} is outside configured project ${process.env.JIRA_PROJECT_KEY}`);
+  if (!input.jiraIssueKey.startsWith(`${env('JIRA_PROJECT_KEY')}-`)) {
+    throw new Error(`Issue ${input.jiraIssueKey} is outside configured project ${env('JIRA_PROJECT_KEY')}`);
   }
 
   const issue = await jiraFetch(
@@ -72,7 +74,7 @@ try {
   );
   const jiraDescriptionText = adfToText(issue.fields?.description).slice(0, 6000);
   const jiraSummary = issue.fields?.summary || input.jiraIssueKey;
-  const jiraIssueUrl = `${process.env.JIRA_BASE_URL.replace(/\/$/, '')}/browse/${input.jiraIssueKey}`;
+  const jiraIssueUrl = `${env('JIRA_BASE_URL').replace(/\/$/, '')}/browse/${input.jiraIssueKey}`;
 
   console.log(JSON.stringify({ stage: 'JIRA_VALIDATED', correlationId: input.correlationId, jiraIssueKey: input.jiraIssueKey }));
 
@@ -134,7 +136,7 @@ try {
         requestFailed: true,
         failureStage: 'JIRA_VALIDATED',
         errorMessage: String(error.message || error).slice(0, 900),
-        jiraIssueUrl: `${process.env.JIRA_BASE_URL?.replace(/\/$/, '') || ''}/browse/${input.jiraIssueKey}`,
+        jiraIssueUrl: `${env('JIRA_BASE_URL')?.replace(/\/$/, '') || ''}/browse/${input.jiraIssueKey}`,
       },
     },
   ];

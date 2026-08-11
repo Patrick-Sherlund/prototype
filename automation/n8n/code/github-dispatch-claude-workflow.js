@@ -1,5 +1,7 @@
+const env = (name) => $env[name];
+
 function requiredEnv(names) {
-  const missing = names.filter((name) => !process.env[name]);
+  const missing = names.filter((name) => !env(name));
   if (missing.length) throw new Error(`Missing environment variable(s): ${missing.join(', ')}`);
 }
 
@@ -15,11 +17,11 @@ function docParagraphs(lines) {
 }
 
 async function jiraComment(issueKey, lines) {
-  if (!process.env.JIRA_BASE_URL || !process.env.JIRA_AUTH_HEADER) return;
-  await fetch(`${process.env.JIRA_BASE_URL.replace(/\/$/, '')}/rest/api/3/issue/${encodeURIComponent(issueKey)}/comment`, {
+  if (!env('JIRA_BASE_URL') || !env('JIRA_AUTH_HEADER')) return;
+  await fetch(`${env('JIRA_BASE_URL').replace(/\/$/, '')}/rest/api/3/issue/${encodeURIComponent(issueKey)}/comment`, {
     method: 'POST',
     headers: {
-      Authorization: process.env.JIRA_AUTH_HEADER,
+      Authorization: env('JIRA_AUTH_HEADER'),
       Accept: 'application/json',
       'Content-Type': 'application/json',
     },
@@ -36,17 +38,17 @@ const input = $input.first().json;
 if (!input.shouldProcess || input.requestFailed) return [{ json: input }];
 
 try {
-  requiredEnv(['GITHUB_OWNER', 'GITHUB_REPO', 'GITHUB_WORKFLOW_FILE', 'GITHUB_DISPATCH_TOKEN', 'WEBHOOK_URL']);
+  requiredEnv(['GITHUB_OWNER', 'GITHUB_REPO', 'GITHUB_WORKFLOW_FILE', 'GITHUB_DISPATCH_TOKEN', 'N8N_WEBHOOK_URL']);
 
-  const callbackBase = process.env.WEBHOOK_URL.replace(/\/$/, '');
+  const callbackBase = env('N8N_WEBHOOK_URL').replace(/\/$/, '');
   const callbackUrl = `${callbackBase}/webhook/poc/github/completion`;
-  const workflowUrl = `https://github.com/${process.env.GITHUB_OWNER}/${process.env.GITHUB_REPO}/actions/workflows/${process.env.GITHUB_WORKFLOW_FILE}`;
-  const apiUrl = `https://api.github.com/repos/${process.env.GITHUB_OWNER}/${process.env.GITHUB_REPO}/actions/workflows/${process.env.GITHUB_WORKFLOW_FILE}/dispatches`;
+  const workflowUrl = `https://github.com/${env('GITHUB_OWNER')}/${env('GITHUB_REPO')}/actions/workflows/${env('GITHUB_WORKFLOW_FILE')}`;
+  const apiUrl = `https://api.github.com/repos/${env('GITHUB_OWNER')}/${env('GITHUB_REPO')}/actions/workflows/${env('GITHUB_WORKFLOW_FILE')}/dispatches`;
 
   const response = await fetch(apiUrl, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${process.env.GITHUB_DISPATCH_TOKEN}`,
+      Authorization: `Bearer ${env('GITHUB_DISPATCH_TOKEN')}`,
       Accept: 'application/vnd.github+json',
       'Content-Type': 'application/json',
       'X-GitHub-Api-Version': '2022-11-28',
