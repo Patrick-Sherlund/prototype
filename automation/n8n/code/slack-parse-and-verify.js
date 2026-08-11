@@ -115,9 +115,9 @@ if (!text) {
   return [{ json: { ...base, shouldProcess: false, ignored: true, ignoreReason: 'empty_message' } }];
 }
 
-const standupMatch = text.match(/^STANDUP(?:\s+DRY\s+RUN)?\b/i);
+const standupMatch = text.match(/^(?:STANDUP|(?:MS\s+Teams|Teams|Daily|Sprint)\s+Standup)(?:\s+DRY\s+RUN)?\b/i);
 if (standupMatch) {
-  const dryRun = /^STANDUP\s+DRY\s+RUN\b/i.test(standupMatch[0]);
+  const dryRun = /\bDRY\s+RUN\b/i.test(standupMatch[0]);
   const transcript = normalizeText(text.slice(standupMatch[0].length));
   if (!transcript) {
     return [{ json: { ...base, shouldProcess: false, ignored: true, ignoreReason: 'empty_standup_transcript' } }];

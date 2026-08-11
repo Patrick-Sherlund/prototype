@@ -74,6 +74,22 @@ async function testSlackParser() {
   assert.equal(standupResult[0].json.standupShouldProcess, true, 'standup transcript without Jira keys is routed');
   assert.equal(standupResult[0].json.shouldProcess, false, 'standup transcript does not enter prototype workflow');
   assert.equal(standupResult[0].json.standupDryRun, true, 'dry-run flag parsed');
+
+  const teamsStandup = signedSlackItem({
+    type: 'event_callback',
+    event_id: 'EVTEAMSSTANDUP',
+    event: {
+      type: 'message',
+      channel: 'C0BP62TK3PD',
+      ts: '3.000001',
+      user: 'U123',
+      text: 'MS Teams Standup\nPatrick:\nSYSCO-6 is ready for review.',
+    },
+  });
+  const teamsResult = await parser(inputOf(teamsStandup), () => ({}), env, fetch, console, require);
+  assert.equal(teamsResult[0].json.standupShouldProcess, true, 'MS Teams Standup header is routed');
+  assert.equal(teamsResult[0].json.shouldProcess, false, 'MS Teams Standup does not enter prototype workflow');
+  assert.equal(teamsResult[0].json.standupDryRun, false, 'MS Teams Standup defaults to live mode');
 }
 
 async function testValidateOutput() {
