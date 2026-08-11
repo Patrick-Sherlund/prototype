@@ -17,6 +17,7 @@ const callbackSecret = requiredEnv('N8N_CALLBACK_SECRET');
 const githubOwner = requiredEnv('GITHUB_OWNER');
 const githubRepo = requiredEnv('GITHUB_REPO');
 const githubToken = requiredEnv('GITHUB_DISPATCH_TOKEN');
+const claudeCommand = resolveClaudeCommand();
 
 let activeJob = null;
 
@@ -89,7 +90,7 @@ async function runJob(job) {
     const promptPath = join(runDir, 'claude-prompt.md');
     writeFileSync(promptPath, buildClaudePrompt(job), 'utf8');
     const claude = await runCommand(
-      'claude',
+      claudeCommand,
       [
         '-p',
         readFileSync(promptPath, 'utf8'),
@@ -538,6 +539,21 @@ function requiredEnv(name) {
   const value = env(name);
   if (!value) throw new Error(`Missing required environment variable ${name}`);
   return value;
+}
+
+function resolveClaudeCommand() {
+  if (env('CLAUDE_COMMAND')) return env('CLAUDE_COMMAND');
+  if (process.platform === 'win32') {
+    const candidates = [
+      process.env.APPDATA ? join(process.env.APPDATA, 'npm', 'claude.cmd') : '',
+      process.env.USERPROFILE ? join(process.env.USERPROFILE, 'AppData', 'Roaming', 'npm', 'claude.cmd') : '',
+      'claude.cmd',
+    ].filter(Boolean);
+    for (const candidate of candidates) {
+      if (candidate === 'claude.cmd' || existsSync(candidate)) return candidate;
+    }
+  }
+  return 'claude';
 }
 
 function safeCompare(expected, provided) {
