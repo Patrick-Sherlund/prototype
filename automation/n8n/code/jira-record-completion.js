@@ -1,4 +1,6 @@
 const env = (name) => $env[name];
+const https = require('https');
+const http = require('http');
 
 function docParagraphs(lines) {
   return {
@@ -20,7 +22,7 @@ function chooseReviewTransition(transitions) {
 }
 
 async function jiraFetch(path, options = {}) {
-  const response = await fetch(`${env('JIRA_BASE_URL').replace(/\/$/, '')}${path}`, {
+  const response = await httpRequest(`${env('JIRA_BASE_URL').replace(/\/$/, '')}${path}`, {
     ...options,
     headers: {
       Authorization: env('JIRA_AUTH_HEADER'),
@@ -29,7 +31,7 @@ async function jiraFetch(path, options = {}) {
       ...(options.headers || {}),
     },
   });
-  const text = await response.text();
+  const text = response.bodyText;
   let data = {};
   if (text) {
     try {
@@ -40,6 +42,34 @@ async function jiraFetch(path, options = {}) {
   }
   if (!response.ok) throw new Error(`Jira ${options.method || 'GET'} ${path} failed (${response.status}): ${text.slice(0, 600)}`);
   return data;
+}
+
+async function httpRequest(url, options = {}) {
+  const method = options.method || 'GET';
+  const body = options.body || '';
+  const headers = { ...(options.headers || {}) };
+  if (body && !headers['Content-Length']) headers['Content-Length'] = Buffer.byteLength(body);
+  const client = url.startsWith('https:') ? https : http;
+
+  return await new Promise((resolve, reject) => {
+    const request = client.request(url, { method, headers }, (response) => {
+      const chunks = [];
+      response.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+      response.on('end', () => {
+        const status = response.statusCode || 0;
+        resolve({
+          status,
+          ok: status >= 200 && status < 300,
+          headers: response.headers,
+          bodyText: Buffer.concat(chunks).toString('utf8'),
+        });
+      });
+    });
+    request.on('error', reject);
+    request.setTimeout(30000, () => request.destroy(new Error(`HTTP ${method} ${url} timed out`)));
+    if (body) request.write(body);
+    request.end();
+  });
 }
 
 const input = $input.first().json;

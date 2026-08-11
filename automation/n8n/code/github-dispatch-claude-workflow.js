@@ -1,4 +1,6 @@
 const env = (name) => $env[name];
+const https = require('https');
+const http = require('http');
 
 function requiredEnv(names) {
   const missing = names.filter((name) => !env(name));
@@ -18,7 +20,7 @@ function docParagraphs(lines) {
 
 async function jiraComment(issueKey, lines) {
   if (!env('JIRA_BASE_URL') || !env('JIRA_AUTH_HEADER')) return;
-  await fetch(`${env('JIRA_BASE_URL').replace(/\/$/, '')}/rest/api/3/issue/${encodeURIComponent(issueKey)}/comment`, {
+  await httpRequest(`${env('JIRA_BASE_URL').replace(/\/$/, '')}/rest/api/3/issue/${encodeURIComponent(issueKey)}/comment`, {
     method: 'POST',
     headers: {
       Authorization: env('JIRA_AUTH_HEADER'),
@@ -26,6 +28,34 @@ async function jiraComment(issueKey, lines) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ body: docParagraphs(lines) }),
+  });
+}
+
+async function httpRequest(url, options = {}) {
+  const method = options.method || 'GET';
+  const body = options.body || '';
+  const headers = { ...(options.headers || {}) };
+  if (body && !headers['Content-Length']) headers['Content-Length'] = Buffer.byteLength(body);
+  const client = url.startsWith('https:') ? https : http;
+
+  return await new Promise((resolve, reject) => {
+    const request = client.request(url, { method, headers }, (response) => {
+      const chunks = [];
+      response.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+      response.on('end', () => {
+        const status = response.statusCode || 0;
+        resolve({
+          status,
+          ok: status >= 200 && status < 300,
+          headers: response.headers,
+          bodyText: Buffer.concat(chunks).toString('utf8'),
+        });
+      });
+    });
+    request.on('error', reject);
+    request.setTimeout(30000, () => request.destroy(new Error(`HTTP ${method} ${url} timed out`)));
+    if (body) request.write(body);
+    request.end();
   });
 }
 
@@ -45,7 +75,7 @@ try {
   const workflowUrl = `https://github.com/${env('GITHUB_OWNER')}/${env('GITHUB_REPO')}/actions/workflows/${env('GITHUB_WORKFLOW_FILE')}`;
   const apiUrl = `https://api.github.com/repos/${env('GITHUB_OWNER')}/${env('GITHUB_REPO')}/actions/workflows/${env('GITHUB_WORKFLOW_FILE')}/dispatches`;
 
-  const response = await fetch(apiUrl, {
+  const response = await httpRequest(apiUrl, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${env('GITHUB_DISPATCH_TOKEN')}`,
@@ -70,7 +100,7 @@ try {
     }),
   });
 
-  const responseText = await response.text();
+  const responseText = response.bodyText;
   if (response.status !== 204) {
     throw new Error(`GitHub workflow_dispatch failed (${response.status}): ${responseText.slice(0, 600)}`);
   }

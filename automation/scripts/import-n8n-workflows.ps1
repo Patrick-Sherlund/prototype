@@ -12,6 +12,10 @@ docker compose -p $ComposeProject exec -T n8n n8n import:workflow --input=/workf
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 docker compose -p $ComposeProject exec -T n8n n8n import:workflow --input=/workflows/github-completion-workflow.json
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+docker compose -p $ComposeProject exec -T n8n n8n publish:workflow --id=pocSlackRequest
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+docker compose -p $ComposeProject exec -T n8n n8n publish:workflow --id=pocGithubCompletion
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 docker compose -p $ComposeProject exec -T n8n n8n list:workflow | Out-Host
 
-Write-Host "Imported n8n workflows. Open n8n, review them, and activate both workflows."
+Write-Host "Imported and published n8n workflows."
