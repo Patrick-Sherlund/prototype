@@ -93,7 +93,6 @@ async function runJob(job) {
       claudeCommand,
       [
         '-p',
-        readFileSync(promptPath, 'utf8'),
         '--max-turns',
         '12',
         '--permission-mode',
@@ -106,6 +105,8 @@ async function runJob(job) {
       ],
       {
         cwd: repoRoot,
+        stdin: readFileSync(promptPath, 'utf8'),
+        shell: process.platform === 'win32',
         timeoutMs: 15 * 60 * 1000,
         stripClaudeTokenEnv: true,
         log,
@@ -383,12 +384,20 @@ function runCommand(command, args, options = {}) {
 
   return new Promise((resolve) => {
     const started = Date.now();
-    const child = spawn(command, args, {
-      cwd: options.cwd || repoRoot,
-      env: childEnv,
-      windowsHide: true,
-      shell: false,
-    });
+    let child;
+    try {
+      child = spawn(command, args, {
+        cwd: options.cwd || repoRoot,
+        env: childEnv,
+        windowsHide: true,
+        shell: Boolean(options.shell),
+        stdio: options.stdin ? ['pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'],
+      });
+    } catch (error) {
+      options.log?.(`${command} failed to start: ${error.message}`);
+      resolve({ code: 1, stdout: '', stderr: redact(error.message) });
+      return;
+    }
 
     let stdout = '';
     let stderr = '';
@@ -404,6 +413,10 @@ function runCommand(command, args, options = {}) {
     child.stderr.on('data', (chunk) => {
       stderr = append(stderr, chunk);
     });
+
+    if (options.stdin) {
+      child.stdin.end(options.stdin);
+    }
 
     const timer = setTimeout(() => {
       child.kill('SIGTERM');
