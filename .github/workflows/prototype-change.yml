@@ -189,15 +189,16 @@ jobs:
 
       - name: Run Claude Code
         id: claude
-        uses: anthropics/claude-code-base-action@beta
+        uses: anthropics/claude-code-base-action@26c1bc6947e0fdc31e743fa9f9de780fc29e1b17
         continue-on-error: true
         env:
           NODE_VERSION: "22.x"
         with:
           prompt_file: ${{ runner.temp }}/claude-implementation-prompt.md
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          max_turns: 12
-          allowed_tools: "Bash(npm:*),Bash(git:*),Bash(gh:*),Bash(ls:*),Bash(pwd),Bash(find:*),Read,Edit,MultiEdit,Write,Glob,Grep,LS"
+          claude_args: |
+            --max-turns 12
+            --allowedTools "Bash(npm:*),Bash(git:*),Bash(gh:*),Bash(ls:*),Bash(pwd),Bash(find:*),Read,Edit,MultiEdit,Write,Glob,Grep,LS"
 
       - name: Stop if Claude failed
         if: steps.claude.outcome != 'success'
