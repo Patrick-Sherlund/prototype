@@ -35,7 +35,7 @@ services:
     image: cloudflare/cloudflared:latest
     profiles: ["tunnel"]
     restart: unless-stopped
-    command: tunnel --no-autoupdate --url http://n8n:5678
+    command: tunnel --no-autoupdate --protocol http2 --url http://n8n:5678
     depends_on:
       n8n:
         condition: service_healthy
