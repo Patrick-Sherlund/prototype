@@ -18,6 +18,7 @@ const githubOwner = requiredEnv('GITHUB_OWNER');
 const githubRepo = requiredEnv('GITHUB_REPO');
 const githubToken = requiredEnv('GITHUB_DISPATCH_TOKEN');
 const claudeCommand = resolveClaudeCommand();
+const claudeMaxTurns = env('CLAUDE_MAX_TURNS', '24');
 
 let activeJob = null;
 
@@ -94,7 +95,7 @@ async function runJob(job) {
       [
         '-p',
         '--max-turns',
-        '12',
+        claudeMaxTurns,
         '--permission-mode',
         'acceptEdits',
         '--allowedTools',
@@ -114,7 +115,13 @@ async function runJob(job) {
     );
     state.claudeResult = claude.code === 0 ? 'success' : 'failure';
     if (claude.code !== 0) {
-      throw new Error(`Claude Code failed (${claude.code}): ${summarizeOutput(claude)}`);
+      const changed = await hasPrototypeChanges(log);
+      if (claudeHitMaxTurns(claude) && changed) {
+        state.claudeResult = 'max_turns_with_changes';
+        log('CLAUDE_STARTED reached max turns after producing prototype changes; continuing to worker validation.');
+      } else {
+        throw new Error(`Claude Code failed (${claude.code}): ${summarizeOutput(claude)}`);
+      }
     }
 
     state.stage = 'CODE_CHANGED';
@@ -194,6 +201,13 @@ async function prepareBranch(state, log) {
 }
 
 async function ensurePrototypeChanged(log) {
+  const changed = await hasPrototypeChanges(log);
+  if (!changed) {
+    throw new Error('Claude completed, but no prototype application changes were detected.');
+  }
+}
+
+async function hasPrototypeChanges(log) {
   const diff = await runRequired('git', ['diff', '--', 'index.html', 'src', 'scripts', 'package.json', 'package-lock.json'], {
     cwd: repoRoot,
     log,
@@ -202,9 +216,7 @@ async function ensurePrototypeChanged(log) {
     cwd: repoRoot,
     log,
   });
-  if (!diff.stdout.trim() && !staged.stdout.trim()) {
-    throw new Error('Claude completed, but no prototype application changes were detected.');
-  }
+  return Boolean(diff.stdout.trim() || staged.stdout.trim());
 }
 
 async function commitAndPushBranch(state, log) {
@@ -515,9 +527,13 @@ function summarizeOutput(result) {
   return redact(`${result.stderr || ''}\n${result.stdout || ''}`.trim()).slice(0, 1200);
 }
 
+function claudeHitMaxTurns(result) {
+  return /error_max_turns/.test(`${result.stdout || ''}\n${result.stderr || ''}`);
+}
+
 function redactArgs(args) {
   return args.map((arg, index) => {
-    if (index > 0 && args[index - 1] === '-p') return '[prompt]';
+    if (index > 0 && args[index - 1] === '-p' && String(arg).length > 200) return '[prompt]';
     return redact(arg);
   });
 }
