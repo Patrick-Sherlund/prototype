@@ -409,6 +409,7 @@ function runCommand(command, args, options = {}) {
         cwd: options.cwd || repoRoot,
         env: childEnv,
         windowsHide: true,
+        windowsVerbatimArguments: Boolean(wrapped.windowsVerbatimArguments),
         stdio: options.stdin ? ['pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'],
       });
     } catch (error) {
@@ -461,6 +462,7 @@ function wrapWindowsCommand(command, args, options) {
     return {
       command: 'cmd.exe',
       args: ['/d', '/s', '/c', ['call', quoteCmd(command), ...args.map(quoteCmd)].join(' ')],
+      windowsVerbatimArguments: true,
     };
   }
   return { command, args };
