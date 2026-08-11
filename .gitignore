@@ -1,2 +1,13 @@
 .env
-.env
+.env.*
+!.env.example
+.automation/
+
+node_modules/
+dist/
+.npm-cache/
+
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

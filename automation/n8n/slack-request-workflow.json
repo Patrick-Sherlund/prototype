@@ -1,0 +1,168 @@
+{
+  "name": "POC A - Slack Request to Claude Prototype",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "poc/slack/request",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "slack-event-webhook",
+      "name": "Slack Event Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "slack-event-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\n\nfunction header(headers, name) {\n  const match = Object.entries(headers || {}).find(([key]) => key.toLowerCase() === name.toLowerCase());\n  return Array.isArray(match?.[1]) ? match[1][0] : match?.[1];\n}\n\nfunction rawBodyFrom(item) {\n  const encoded = item.binary?.data?.data;\n  if (encoded) return Buffer.from(encoded, 'base64').toString('utf8');\n  const body = item.json.body;\n  return typeof body === 'string' ? body : JSON.stringify(body || {});\n}\n\nfunction safeCompare(a, b) {\n  const left = Buffer.from(String(a || ''));\n  const right = Buffer.from(String(b || ''));\n  return left.length === right.length && crypto.timingSafeEqual(left, right);\n}\n\nfunction normalizeText(text) {\n  return String(text || '').replace(/\\r\\n/g, '\\n').trim();\n}\n\nfunction makeCorrelation(issueKey, eventId, ts) {\n  const source = `${issueKey}-${eventId || ts || Date.now()}`;\n  return source.toUpperCase().replace(/[^A-Z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');\n}\n\nconst item = $input.first();\nconst headers = item.json.headers || {};\nconst rawBody = rawBodyFrom(item);\nconst signingSecret = process.env.SLACK_SIGNING_SECRET;\n\nif (!signingSecret) {\n  throw new Error('SLACK_RECEIVED failed: SLACK_SIGNING_SECRET is not configured');\n}\n\nconst timestamp = header(headers, 'x-slack-request-timestamp');\nconst signature = header(headers, 'x-slack-signature');\nif (!timestamp || !signature) {\n  throw new Error('SLACK_RECEIVED failed: missing Slack signature headers');\n}\n\nconst requestAgeSeconds = Math.abs(Math.floor(Date.now() / 1000) - Number(timestamp));\nif (!Number.isFinite(requestAgeSeconds) || requestAgeSeconds > 60 * 5) {\n  throw new Error('SLACK_RECEIVED failed: stale Slack request timestamp');\n}\n\nconst expectedSignature =\n  'v0=' + crypto.createHmac('sha256', signingSecret).update(`v0:${timestamp}:${rawBody}`).digest('hex');\nif (!safeCompare(expectedSignature, signature)) {\n  throw new Error('SLACK_RECEIVED failed: invalid Slack request signature');\n}\n\nconst body = typeof item.json.body === 'object' && item.json.body !== null ? item.json.body : JSON.parse(rawBody);\n\nif (body.type === 'url_verification') {\n  console.log(JSON.stringify({ stage: 'SLACK_RECEIVED', event: 'url_verification' }));\n  return [\n    {\n      json: {\n        ackStatusCode: 200,\n        ackText: body.challenge,\n        shouldProcess: false,\n        ignored: true,\n        ignoreReason: 'url_verification',\n      },\n    },\n  ];\n}\n\nconst event = body.event || {};\nconst retryNum = header(headers, 'x-slack-retry-num');\nconst configuredChannelId = process.env.SLACK_CHANNEL_ID;\nconst text = normalizeText(event.text);\nconst issueMatch = text.match(/\\bSYSCO-\\d+\\b/i);\nconst slackThreadTs = event.thread_ts || event.ts;\n\nconst base = {\n  ackStatusCode: 200,\n  ackText: 'ok',\n  slackEventId: body.event_id,\n  slackChannelId: event.channel,\n  slackMessageTs: event.ts,\n  slackThreadTs,\n  requesterIdentity: event.user || event.username || '',\n};\n\nif (retryNum) {\n  console.log(JSON.stringify({ stage: 'SLACK_RECEIVED', ignored: true, reason: 'slack_retry', eventId: body.event_id }));\n  return [{ json: { ...base, shouldProcess: false, ignored: true, ignoreReason: 'slack_retry' } }];\n}\n\nif (body.type !== 'event_callback' || event.type !== 'message') {\n  return [{ json: { ...base, shouldProcess: false, ignored: true, ignoreReason: 'not_message_event' } }];\n}\n\nif (event.bot_id || event.subtype === 'bot_message') {\n  return [{ json: { ...base, shouldProcess: false, ignored: true, ignoreReason: 'bot_message' } }];\n}\n\nif (!configuredChannelId || event.channel !== configuredChannelId) {\n  return [{ json: { ...base, shouldProcess: false, ignored: true, ignoreReason: 'wrong_channel' } }];\n}\n\nif (!issueMatch) {\n  return [{ json: { ...base, shouldProcess: false, ignored: true, ignoreReason: 'no_sysco_issue_key' } }];\n}\n\nconst staticData = $getWorkflowStaticData('global');\nstaticData.seenSlackEvents = staticData.seenSlackEvents || {};\nconst now = Date.now();\nfor (const [eventId, seenAt] of Object.entries(staticData.seenSlackEvents)) {\n  if (now - Number(seenAt) > 24 * 60 * 60 * 1000) delete staticData.seenSlackEvents[eventId];\n}\nif (body.event_id && staticData.seenSlackEvents[body.event_id]) {\n  return [{ json: { ...base, shouldProcess: false, ignored: true, ignoreReason: 'duplicate_event' } }];\n}\nif (body.event_id) staticData.seenSlackEvents[body.event_id] = now;\n\nconst jiraIssueKey = issueMatch[0].toUpperCase();\nconst requestedChange = normalizeText(text.replace(issueMatch[0], '')).replace(/^[-:\\s]+/, '');\nconst correlationId = makeCorrelation(jiraIssueKey, body.event_id, event.ts);\n\nconsole.log(JSON.stringify({ stage: 'SLACK_RECEIVED', correlationId, jiraIssueKey, slackChannelId: event.channel }));\n\nreturn [\n  {\n    json: {\n      ...base,\n      shouldProcess: true,\n      ignored: false,\n      jiraIssueKey,\n      requestedChange,\n      correlationId,\n    },\n  },\n];\n"
+      },
+      "id": "slack-parse-verify",
+      "name": "Slack - Parse and Verify",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.ackText || \"ok\" }}",
+        "options": {
+          "responseCode": "={{ $json.ackStatusCode || 200 }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/plain; charset=utf-8"
+              }
+            ]
+          }
+        }
+      },
+      "id": "respond-to-slack",
+      "name": "Respond to Slack",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function requiredEnv(names) {\n  const missing = names.filter((name) => !process.env[name]);\n  if (missing.length) throw new Error(`Missing environment variable(s): ${missing.join(', ')}`);\n}\n\nfunction docParagraphs(lines) {\n  return {\n    type: 'doc',\n    version: 1,\n    content: lines.map((line) => ({\n      type: 'paragraph',\n      content: line ? [{ type: 'text', text: line }] : [],\n    })),\n  };\n}\n\nfunction adfToText(node) {\n  if (!node) return '';\n  if (typeof node === 'string') return node;\n  if (Array.isArray(node)) return node.map(adfToText).filter(Boolean).join('\\n');\n  if (node.type === 'text') return node.text || '';\n  if (Array.isArray(node.content)) return node.content.map(adfToText).filter(Boolean).join(node.type === 'paragraph' ? ' ' : '\\n');\n  return '';\n}\n\nfunction chooseActiveTransition(transitions) {\n  const candidates = transitions || [];\n  const preferred = [/in progress/i, /start/i, /doing/i, /active/i, /selected for development/i];\n  return candidates.find((transition) => {\n    const label = `${transition.name || ''} ${transition.to?.name || ''}`;\n    return preferred.some((pattern) => pattern.test(label));\n  });\n}\n\nasync function jiraFetch(path, options = {}) {\n  const baseUrl = process.env.JIRA_BASE_URL.replace(/\\/$/, '');\n  const response = await fetch(`${baseUrl}${path}`, {\n    ...options,\n    headers: {\n      Authorization: process.env.JIRA_AUTH_HEADER,\n      Accept: 'application/json',\n      'Content-Type': 'application/json',\n      ...(options.headers || {}),\n    },\n  });\n  const text = await response.text();\n  let data = {};\n  if (text) {\n    try {\n      data = JSON.parse(text);\n    } catch {\n      data = { raw: text.slice(0, 600) };\n    }\n  }\n  if (!response.ok) {\n    throw new Error(`Jira ${options.method || 'GET'} ${path} failed (${response.status}): ${text.slice(0, 600)}`);\n  }\n  return data;\n}\n\nconst input = $input.first().json;\nif (!input.shouldProcess) return [{ json: input }];\n\ntry {\n  requiredEnv(['JIRA_BASE_URL', 'JIRA_PROJECT_KEY', 'JIRA_AUTH_HEADER']);\n  if (!input.jiraIssueKey.startsWith(`${process.env.JIRA_PROJECT_KEY}-`)) {\n    throw new Error(`Issue ${input.jiraIssueKey} is outside configured project ${process.env.JIRA_PROJECT_KEY}`);\n  }\n\n  const issue = await jiraFetch(\n    `/rest/api/3/issue/${encodeURIComponent(input.jiraIssueKey)}?fields=summary,description,status,issuetype,priority`,\n  );\n  const jiraDescriptionText = adfToText(issue.fields?.description).slice(0, 6000);\n  const jiraSummary = issue.fields?.summary || input.jiraIssueKey;\n  const jiraIssueUrl = `${process.env.JIRA_BASE_URL.replace(/\\/$/, '')}/browse/${input.jiraIssueKey}`;\n\n  console.log(JSON.stringify({ stage: 'JIRA_VALIDATED', correlationId: input.correlationId, jiraIssueKey: input.jiraIssueKey }));\n\n  await jiraFetch(`/rest/api/3/issue/${encodeURIComponent(input.jiraIssueKey)}/comment`, {\n    method: 'POST',\n    body: JSON.stringify({\n      body: docParagraphs([\n        `SLACK_RECEIVED prototype request`,\n        `Correlation ID: ${input.correlationId}`,\n        `Slack channel: ${input.slackChannelId}`,\n        `Slack message ts: ${input.slackMessageTs}`,\n        `Slack thread ts: ${input.slackThreadTs}`,\n        `Requester: ${input.requesterIdentity || 'unknown'}`,\n        '',\n        'Requested change:',\n        input.requestedChange,\n      ]),\n    }),\n  });\n\n  const transitions = await jiraFetch(`/rest/api/3/issue/${encodeURIComponent(input.jiraIssueKey)}/transitions`);\n  const activeTransition = chooseActiveTransition(transitions.transitions);\n  let transitionApplied = '';\n  if (activeTransition?.id) {\n    await jiraFetch(`/rest/api/3/issue/${encodeURIComponent(input.jiraIssueKey)}/transitions`, {\n      method: 'POST',\n      body: JSON.stringify({ transition: { id: activeTransition.id } }),\n    });\n    transitionApplied = activeTransition.name || activeTransition.to?.name || activeTransition.id;\n  }\n\n  console.log(\n    JSON.stringify({\n      stage: 'JIRA_UPDATED',\n      correlationId: input.correlationId,\n      jiraIssueKey: input.jiraIssueKey,\n      transitionApplied,\n    }),\n  );\n\n  return [\n    {\n      json: {\n        ...input,\n        jiraOk: true,\n        jiraIssueUrl,\n        jiraSummary,\n        jiraDescriptionText,\n        jiraStatus: issue.fields?.status?.name || '',\n        jiraTransitionApplied: transitionApplied,\n      },\n    },\n  ];\n} catch (error) {\n  return [\n    {\n      json: {\n        ...input,\n        requestFailed: true,\n        failureStage: 'JIRA_VALIDATED',\n        errorMessage: String(error.message || error).slice(0, 900),\n        jiraIssueUrl: `${process.env.JIRA_BASE_URL?.replace(/\\/$/, '') || ''}/browse/${input.jiraIssueKey}`,\n      },\n    },\n  ];\n}\n"
+      },
+      "id": "jira-validate-active",
+      "name": "Jira - Validate and Mark Active",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function requiredEnv(names) {\n  const missing = names.filter((name) => !process.env[name]);\n  if (missing.length) throw new Error(`Missing environment variable(s): ${missing.join(', ')}`);\n}\n\nfunction docParagraphs(lines) {\n  return {\n    type: 'doc',\n    version: 1,\n    content: lines.map((line) => ({\n      type: 'paragraph',\n      content: line ? [{ type: 'text', text: line }] : [],\n    })),\n  };\n}\n\nasync function jiraComment(issueKey, lines) {\n  if (!process.env.JIRA_BASE_URL || !process.env.JIRA_AUTH_HEADER) return;\n  await fetch(`${process.env.JIRA_BASE_URL.replace(/\\/$/, '')}/rest/api/3/issue/${encodeURIComponent(issueKey)}/comment`, {\n    method: 'POST',\n    headers: {\n      Authorization: process.env.JIRA_AUTH_HEADER,\n      Accept: 'application/json',\n      'Content-Type': 'application/json',\n    },\n    body: JSON.stringify({ body: docParagraphs(lines) }),\n  });\n}\n\nfunction truncate(value, max) {\n  const text = String(value || '');\n  return text.length > max ? `${text.slice(0, max - 20)}\\n...[truncated]` : text;\n}\n\nconst input = $input.first().json;\nif (!input.shouldProcess || input.requestFailed) return [{ json: input }];\n\ntry {\n  requiredEnv(['GITHUB_OWNER', 'GITHUB_REPO', 'GITHUB_WORKFLOW_FILE', 'GITHUB_DISPATCH_TOKEN', 'WEBHOOK_URL']);\n\n  const callbackBase = process.env.WEBHOOK_URL.replace(/\\/$/, '');\n  const callbackUrl = `${callbackBase}/webhook/poc/github/completion`;\n  const workflowUrl = `https://github.com/${process.env.GITHUB_OWNER}/${process.env.GITHUB_REPO}/actions/workflows/${process.env.GITHUB_WORKFLOW_FILE}`;\n  const apiUrl = `https://api.github.com/repos/${process.env.GITHUB_OWNER}/${process.env.GITHUB_REPO}/actions/workflows/${process.env.GITHUB_WORKFLOW_FILE}/dispatches`;\n\n  const response = await fetch(apiUrl, {\n    method: 'POST',\n    headers: {\n      Authorization: `Bearer ${process.env.GITHUB_DISPATCH_TOKEN}`,\n      Accept: 'application/vnd.github+json',\n      'Content-Type': 'application/json',\n      'X-GitHub-Api-Version': '2022-11-28',\n    },\n    body: JSON.stringify({\n      ref: 'main',\n      inputs: {\n        jira_issue_key: input.jiraIssueKey,\n        jira_summary: truncate(input.jiraSummary, 900),\n        jira_description: truncate(input.jiraDescriptionText, 6000),\n        requested_change: truncate(input.requestedChange, 6000),\n        slack_channel_id: input.slackChannelId,\n        slack_message_ts: input.slackMessageTs,\n        slack_thread_ts: input.slackThreadTs,\n        requester_identity: input.requesterIdentity || '',\n        correlation_id: input.correlationId,\n        n8n_callback_url: callbackUrl,\n      },\n    }),\n  });\n\n  const responseText = await response.text();\n  if (response.status !== 204) {\n    throw new Error(`GitHub workflow_dispatch failed (${response.status}): ${responseText.slice(0, 600)}`);\n  }\n\n  await jiraComment(input.jiraIssueKey, [\n    'GITHUB_DISPATCHED Claude prototype implementation workflow.',\n    `Correlation ID: ${input.correlationId}`,\n    `Workflow: ${workflowUrl}`,\n    'The GitHub Action will callback to n8n with PR, preview, commit, and build details.',\n  ]);\n\n  console.log(JSON.stringify({ stage: 'GITHUB_DISPATCHED', correlationId: input.correlationId, workflowUrl }));\n\n  return [{ json: { ...input, githubDispatched: true, githubWorkflowUrl: workflowUrl } }];\n} catch (error) {\n  const errorMessage = String(error.message || error).slice(0, 900);\n  if (input.jiraIssueKey) {\n    await jiraComment(input.jiraIssueKey, [\n      'GITHUB_DISPATCHED failed before Claude could start.',\n      `Correlation ID: ${input.correlationId}`,\n      `Error: ${errorMessage}`,\n    ]).catch(() => {});\n  }\n  return [{ json: { ...input, requestFailed: true, failureStage: 'GITHUB_DISPATCHED', errorMessage } }];\n}\n"
+      },
+      "id": "github-dispatch-claude",
+      "name": "GitHub - Dispatch Claude Workflow",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "async function postSlack(channel, threadTs, text) {\n  const response = await fetch('https://slack.com/api/chat.postMessage', {\n    method: 'POST',\n    headers: {\n      Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,\n      'Content-Type': 'application/json; charset=utf-8',\n    },\n    body: JSON.stringify({\n      channel,\n      thread_ts: threadTs,\n      unfurl_links: false,\n      unfurl_media: false,\n      text,\n    }),\n  });\n  const data = await response.json();\n  if (!data.ok) throw new Error(`Slack chat.postMessage failed: ${data.error || 'unknown_error'}`);\n  return data;\n}\n\nconst input = $input.first().json;\nif (!input.requestFailed || !input.slackChannelId || !input.slackThreadTs) return [{ json: input }];\n\nif (!process.env.SLACK_BOT_TOKEN) {\n  throw new Error('Failure reporting needs SLACK_BOT_TOKEN, but it is not configured');\n}\n\nconst jiraLine = input.jiraIssueUrl ? `\\nJira: ${input.jiraIssueUrl}` : '';\nconst text = `${input.jiraIssueKey || 'SYSCO request'} prototype automation failed\\n\\nStage: ${input.failureStage}\\nCorrelation: ${input.correlationId || 'unknown'}${jiraLine}\\nError: ${input.errorMessage || 'Unknown error'}`;\n\nawait postSlack(input.slackChannelId, input.slackThreadTs, text);\nconsole.log(JSON.stringify({ stage: 'SLACK_COMPLETED', outcome: 'request_failure_reported', correlationId: input.correlationId }));\n\nreturn [{ json: { ...input, slackFailureReported: true } }];\n"
+      },
+      "id": "slack-report-request-failure",
+      "name": "Slack - Report Request Failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Slack Event Webhook": {
+      "main": [
+        [
+          {
+            "node": "Slack - Parse and Verify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack - Parse and Verify": {
+      "main": [
+        [
+          {
+            "node": "Respond to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Slack": {
+      "main": [
+        [
+          {
+            "node": "Jira - Validate and Mark Active",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jira - Validate and Mark Active": {
+      "main": [
+        [
+          {
+            "node": "GitHub - Dispatch Claude Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub - Dispatch Claude Workflow": {
+      "main": [
+        [
+          {
+            "node": "Slack - Report Request Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all"
+  },
+  "active": false,
+  "versionId": "slack-request-workflow-v1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

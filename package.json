@@ -1,0 +1,16 @@
+{
+  "name": "foodservice-prototype",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/serve.mjs .",
+    "build": "node scripts/build.mjs",
+    "preview": "node scripts/serve.mjs dist",
+    "build:workflows": "node automation/n8n/build-workflows.mjs",
+    "validate:workflows": "node automation/n8n/build-workflows.mjs --check",
+    "create:jira-demo": "node automation/scripts/create-jira-demo-issue.mjs"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

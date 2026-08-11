@@ -1,0 +1,388 @@
+name: Prototype Change via Claude
+
+on:
+  workflow_dispatch:
+    inputs:
+      jira_issue_key:
+        description: Jira issue key, for example SYSCO-1
+        required: true
+      jira_summary:
+        description: Jira issue summary
+        required: true
+      jira_description:
+        description: Jira issue description/context
+        required: false
+        default: ""
+      requested_change:
+        description: Slack-requested prototype change
+        required: true
+      slack_channel_id:
+        description: Original Slack channel ID
+        required: true
+      slack_message_ts:
+        description: Original Slack message timestamp
+        required: true
+      slack_thread_ts:
+        description: Original Slack thread timestamp
+        required: true
+      requester_identity:
+        description: Slack requester identity
+        required: false
+        default: ""
+      correlation_id:
+        description: n8n correlation ID
+        required: true
+      n8n_callback_url:
+        description: n8n completion webhook URL
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: prototype-${{ inputs.jira_issue_key }}
+  cancel-in-progress: false
+
+jobs:
+  implement:
+    runs-on: ubuntu-latest
+    env:
+      RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      STAGE: CLAUDE_STARTED
+
+    steps:
+      - name: Initialize correlation metadata
+        id: meta
+        shell: bash
+        env:
+          RAW_ISSUE_KEY: ${{ inputs.jira_issue_key }}
+          RAW_CORRELATION_ID: ${{ inputs.correlation_id }}
+        run: |
+          set -euo pipefail
+          issue="$(printf '%s' "$RAW_ISSUE_KEY" | tr '[:lower:]' '[:upper:]' | sed -E 's/[^A-Z0-9-]/-/g; s/-+/-/g; s/^-|-$//g')"
+          if [[ -z "$issue" ]]; then
+            echo "Invalid Jira issue key input" >&2
+            exit 1
+          fi
+
+          repo_name="${GITHUB_REPOSITORY#*/}"
+          branch="prototype/${issue}"
+          preview_path="previews/${issue}/${GITHUB_RUN_ID}"
+          preview_latest_path="previews/${issue}/latest"
+          preview_url="https://${GITHUB_REPOSITORY_OWNER}.github.io/${repo_name}/${preview_path}/"
+
+          {
+            echo "ISSUE_KEY=$issue"
+            echo "BRANCH=$branch"
+            echo "PREVIEW_PATH=$preview_path"
+            echo "PREVIEW_LATEST_PATH=$preview_latest_path"
+            echo "PREVIEW_URL=$preview_url"
+            echo "COMMIT_SHA="
+            echo "PR_URL="
+          } >> "$GITHUB_ENV"
+
+          {
+            echo "issue_key=$issue"
+            echo "branch=$branch"
+            echo "preview_url=$preview_url"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "CLAUDE_STARTED correlation_id=${RAW_CORRELATION_ID} issue=$issue"
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Create or update issue branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            git fetch origin "$BRANCH:$BRANCH"
+            git checkout "$BRANCH"
+            git merge --no-edit origin/main
+          else
+            git checkout -B "$BRANCH" origin/main
+          fi
+
+      - name: Write Claude implementation prompt
+        shell: bash
+        env:
+          INPUT_JIRA_ISSUE_KEY: ${{ inputs.jira_issue_key }}
+          INPUT_JIRA_SUMMARY: ${{ inputs.jira_summary }}
+          INPUT_JIRA_DESCRIPTION: ${{ inputs.jira_description }}
+          INPUT_REQUESTED_CHANGE: ${{ inputs.requested_change }}
+          INPUT_CORRELATION_ID: ${{ inputs.correlation_id }}
+          INPUT_REQUESTER_IDENTITY: ${{ inputs.requester_identity }}
+          INPUT_SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
+          INPUT_SLACK_THREAD_TS: ${{ inputs.slack_thread_ts }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+
+          const prompt = [
+            'You are implementing a focused prototype change in this repository.',
+            '',
+            `Issue: ${process.env.INPUT_JIRA_ISSUE_KEY}`,
+            `Jira summary: ${process.env.INPUT_JIRA_SUMMARY}`,
+            'Jira context:',
+            process.env.INPUT_JIRA_DESCRIPTION || '(no Jira description provided)',
+            '',
+            'Slack request:',
+            process.env.INPUT_REQUESTED_CHANGE,
+            '',
+            `Requester: ${process.env.INPUT_REQUESTER_IDENTITY || 'unknown'}`,
+            `Slack channel: ${process.env.INPUT_SLACK_CHANNEL_ID}`,
+            `Slack thread timestamp: ${process.env.INPUT_SLACK_THREAD_TS}`,
+            `Correlation ID: ${process.env.INPUT_CORRELATION_ID}`,
+            '',
+            'Repository constraints:',
+            '- This is a small foodservice purchasing/order-management prototype.',
+            '- Preserve the existing visual language, layout density, colors, typography, and responsive behavior.',
+            '- Do not redesign unrelated areas.',
+            '- Do not create unrelated operational workflows outside foodservice purchasing.',
+            '- Modify only relevant application code and supporting static assets.',
+            `- The issue branch is already checked out as ${process.env.BRANCH}; do not push to main.`,
+            `- Use branch ${process.env.BRANCH} for any push.`,
+            '',
+            'Required validation:',
+            '- Inspect the app before editing.',
+            '- Run npm ci if dependencies need reinstalling.',
+            '- Run npm run build after your edits.',
+            '- Fix implementation-caused build failures when reasonable.',
+            '',
+            'Git requirements:',
+            `- Commit the prototype changes with a concise message starting with ${process.env.INPUT_JIRA_ISSUE_KEY}.`,
+            `- Push only ${process.env.BRANCH}.`,
+            '- Create or update a Pull Request to main if you can using the available GitHub CLI.',
+            '- If the workflow later finds uncommitted changes, it will commit/push them as a fallback.',
+            '',
+            'Report in your final response:',
+            '- Files changed.',
+            '- Validation commands run.',
+            '- Any limitations or follow-up risk.',
+            '',
+          ].join('\n');
+
+          const promptPath = path.join(process.env.RUNNER_TEMP, 'claude-implementation-prompt.md');
+          fs.writeFileSync(promptPath, prompt);
+          console.log(`Prompt written to ${promptPath}`);
+          NODE
+
+      - name: Run Claude Code
+        id: claude
+        uses: anthropics/claude-code-base-action@beta
+        continue-on-error: true
+        env:
+          NODE_VERSION: "22.x"
+        with:
+          prompt_file: ${{ runner.temp }}/claude-implementation-prompt.md
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: |
+            --max-turns 12
+            --allowedTools "Bash(npm:*),Bash(git:*),Bash(gh:*),Bash(ls:*),Bash(pwd),Bash(find:*),Read,Edit,MultiEdit,Write,Glob,Grep,LS"
+
+      - name: Stop if Claude failed
+        if: steps.claude.outcome != 'success'
+        shell: bash
+        run: |
+          echo "STAGE=CLAUDE_STARTED" >> "$GITHUB_ENV"
+          echo "Claude Code failed before a validated prototype change was produced." >&2
+          exit 1
+
+      - name: Commit any remaining Claude changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "STAGE=CODE_CHANGED" >> "$GITHUB_ENV"
+
+          if ! git diff --quiet || ! git diff --cached --quiet; then
+            git add --all
+            git commit -m "${ISSUE_KEY}: implement prototype request"
+          fi
+
+          if git diff --quiet origin/main...HEAD; then
+            echo "Claude completed, but no prototype code changes were detected against main." >&2
+            exit 1
+          fi
+
+      - name: Build changed prototype
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run build
+          echo "STAGE=BUILD_PASSED" >> "$GITHUB_ENV"
+
+      - name: Push issue branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git push --set-upstream origin "$BRANCH"
+          commit_sha="$(git rev-parse HEAD)"
+          echo "COMMIT_SHA=$commit_sha" >> "$GITHUB_ENV"
+
+      - name: Create or update Pull Request
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_CORRELATION_ID: ${{ inputs.correlation_id }}
+          INPUT_SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
+          INPUT_SLACK_THREAD_TS: ${{ inputs.slack_thread_ts }}
+          INPUT_REQUESTED_CHANGE: ${{ inputs.requested_change }}
+        run: |
+          set -euo pipefail
+          pr_body="$RUNNER_TEMP/pr-body.md"
+          PR_BODY="$pr_body" node <<'NODE'
+          const fs = require('fs');
+          const body = [
+            `Automated prototype update for ${process.env.ISSUE_KEY}.`,
+            '',
+            `Correlation ID: ${process.env.INPUT_CORRELATION_ID}`,
+            `Slack channel: ${process.env.INPUT_SLACK_CHANNEL_ID}`,
+            `Slack thread: ${process.env.INPUT_SLACK_THREAD_TS}`,
+            '',
+            'Requested change:',
+            process.env.INPUT_REQUESTED_CHANGE,
+            '',
+          ].join('\n');
+          fs.writeFileSync(process.env.PR_BODY, body);
+          NODE
+
+          existing_url="$(gh pr list --base main --head "$BRANCH" --json url --jq '.[0].url // empty')"
+          if [[ -n "$existing_url" ]]; then
+            gh pr edit "$existing_url" --title "${ISSUE_KEY} prototype update" --body-file "$pr_body"
+            pr_url="$existing_url"
+          else
+            pr_url="$(gh pr create --base main --head "$BRANCH" --title "${ISSUE_KEY} prototype update" --body-file "$pr_body")"
+          fi
+
+          echo "PR_URL=$pr_url" >> "$GITHUB_ENV"
+          echo "STAGE=PR_CREATED" >> "$GITHUB_ENV"
+          echo "PR_CREATED $pr_url"
+
+      - name: Publish deterministic preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          pages_dir="$RUNNER_TEMP/gh-pages"
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            git fetch origin gh-pages:refs/remotes/origin/gh-pages
+            git worktree add -B gh-pages "$pages_dir" origin/gh-pages
+          else
+            git worktree add --detach "$pages_dir"
+            (
+              cd "$pages_dir"
+              git checkout --orphan gh-pages
+              git rm -rf . >/dev/null 2>&1 || true
+            )
+          fi
+
+          mkdir -p "$pages_dir/$PREVIEW_PATH" "$pages_dir/$PREVIEW_LATEST_PATH" "$pages_dir/previews"
+          rsync -a --delete dist/ "$pages_dir/$PREVIEW_PATH/"
+          rsync -a --delete dist/ "$pages_dir/$PREVIEW_LATEST_PATH/"
+          touch "$pages_dir/.nojekyll"
+
+          if [[ ! -f "$pages_dir/index.html" ]]; then
+            cat > "$pages_dir/index.html" <<EOF
+          <!doctype html>
+          <html lang="en">
+            <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Prototype Previews</title></head>
+            <body><h1>Prototype Previews</h1><p>Issue previews are published under /previews/&lt;issue&gt;/&lt;run-id&gt;/.</p></body>
+          </html>
+          EOF
+          fi
+
+          (
+            cd "$pages_dir"
+            git add --all
+            if git diff --cached --quiet; then
+              echo "No preview changes to publish."
+            else
+              git commit -m "Publish preview for ${ISSUE_KEY} run ${GITHUB_RUN_ID}"
+              git push origin HEAD:gh-pages
+            fi
+          )
+
+          echo "STAGE=PREVIEW_DEPLOYED" >> "$GITHUB_ENV"
+          echo "PREVIEW_DEPLOYED $PREVIEW_URL"
+
+      - name: Send completion callback to n8n
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          CALLBACK_URL: ${{ inputs.n8n_callback_url }}
+          N8N_CALLBACK_SECRET: ${{ secrets.N8N_CALLBACK_SECRET }}
+          JOB_STATUS: ${{ job.status }}
+          CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
+          JIRA_ISSUE_KEY: ${{ inputs.jira_issue_key }}
+          CORRELATION_ID: ${{ inputs.correlation_id }}
+          SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
+          SLACK_MESSAGE_TS: ${{ inputs.slack_message_ts }}
+          SLACK_THREAD_TS: ${{ inputs.slack_thread_ts }}
+          REQUESTED_CHANGE: ${{ inputs.requested_change }}
+        with:
+          script: |
+            const callbackUrl = process.env.CALLBACK_URL;
+            if (!callbackUrl) {
+              core.setFailed('Missing n8n callback URL');
+              return;
+            }
+            if (!process.env.N8N_CALLBACK_SECRET) {
+              core.setFailed('Missing N8N_CALLBACK_SECRET repository secret');
+              return;
+            }
+
+            const success = process.env.JOB_STATUS === 'success';
+            const payload = {
+              status: success ? 'success' : 'failure',
+              stage: process.env.STAGE || 'unknown',
+              jira_issue_key: process.env.JIRA_ISSUE_KEY,
+              correlation_id: process.env.CORRELATION_ID,
+              slack_channel_id: process.env.SLACK_CHANNEL_ID,
+              slack_message_ts: process.env.SLACK_MESSAGE_TS,
+              slack_thread_ts: process.env.SLACK_THREAD_TS,
+              requested_change: process.env.REQUESTED_CHANGE,
+              branch: process.env.BRANCH || '',
+              commit_sha: process.env.COMMIT_SHA || '',
+              pr_url: process.env.PR_URL || '',
+              preview_url: process.env.PREVIEW_URL || '',
+              build_result: success ? 'success' : 'failed',
+              claude_result: process.env.CLAUDE_OUTCOME || 'unknown',
+              run_url: process.env.RUN_URL,
+              error_message: success ? '' : `GitHub Actions failed at or before ${process.env.STAGE || 'unknown'}`,
+            };
+
+            const response = await fetch(callbackUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-poc-callback-secret': process.env.N8N_CALLBACK_SECRET,
+              },
+              body: JSON.stringify(payload),
+            });
+
+            const text = await response.text();
+            if (!response.ok) {
+              core.setFailed(`N8N_CALLBACK_SENT failed (${response.status}): ${text.slice(0, 500)}`);
+              return;
+            }
+
+            core.info(`N8N_CALLBACK_SENT correlation_id=${payload.correlation_id}`);
