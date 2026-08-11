@@ -83,6 +83,8 @@ try {
     },
     body: JSON.stringify({
       jira_issue_key: input.jiraIssueKey,
+      original_requested_jira_issue_key: input.originalJiraIssueKey || input.requestedJiraIssueKey || input.jiraIssueKey,
+      jira_issue_was_created: Boolean(input.jiraIssueCreated),
       jira_summary: truncate(input.jiraSummary, 900),
       jira_description: truncate(input.jiraDescriptionText, 6000),
       requested_change: truncate(input.requestedChange, 6000),
@@ -103,6 +105,9 @@ try {
   await jiraComment(input.jiraIssueKey, [
     'LOCAL_WORKER_STARTED Claude prototype implementation worker.',
     `Correlation ID: ${input.correlationId}`,
+    ...(input.jiraIssueCreated && input.originalJiraIssueKey !== input.jiraIssueKey
+      ? [`Original Slack-requested key: ${input.originalJiraIssueKey}`]
+      : []),
     `Worker URL: ${env('LOCAL_WORKER_URL')}`,
     'The local worker will callback to n8n with PR, preview, commit, and build details.',
   ]);

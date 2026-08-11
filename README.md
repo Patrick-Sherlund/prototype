@@ -6,6 +6,8 @@ This repo contains a small Sysco-themed foodservice ordering prototype and the a
 Slack -> n8n -> Jira -> local Claude Code worker -> GitHub branch/PR/preview -> Jira -> Slack
 ```
 
+Slack requests may reference an existing `SYSCO-<number>` Jira issue. If Jira returns 404 for that key, the n8n workflow creates a new issue in the configured project and uses Jira's generated key for the branch, PR, preview, completion update, and Slack reply.
+
 ## Prototype
 
 ```powershell

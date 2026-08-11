@@ -254,12 +254,14 @@ $env:JIRA_AUTH_HEADER="Basic <base64-email-colon-api-token>"
 npm run create:jira-demo
 ```
 
-Use the returned Jira issue key in Slack, for example:
+Use an existing Jira issue key in Slack, for example:
 
 ```text
 SYSCO-1
 Change the "Reorder" button on the order history screen to "Buy Again" and make it more visually prominent.
 ```
+
+If the Slack message references a `SYSCO-<number>` key that Jira returns as missing, n8n creates a new issue in the configured `SYSCO` project. The workflow selects an available non-subtask issue type from the project, preferring `Story`, then `Task`, then `Feature`. Jira assigns the real key; the workflow preserves the Slack-requested key for traceability, then uses the Jira-generated key as the canonical identifier for the correlation ID, worker branch, commit, PR, preview path, Jira completion comment, and Slack completion reply.
 
 ## GitHub Setup
 
@@ -302,7 +304,7 @@ Do not use `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` for this POC path.
 4. Import and activate workflows.
 5. Start the local worker with `npm run worker:start`.
 6. Confirm the Slack app request URL is verified.
-7. Use existing Jira issue `SYSCO-6` or create a Jira demo issue with `npm run create:jira-demo`.
+7. Use existing Jira issue `SYSCO-6`, create a Jira demo issue with `npm run create:jira-demo`, or intentionally post a missing key to validate issue creation.
 8. Post in Slack channel `C0BP62TK3PD`:
 
 ```text
@@ -313,10 +315,11 @@ Change the "Reorder" button on the order history screen to "Buy Again" and make 
 Expected result:
 
 - Jira receives a Slack request comment and moves active if a valid transition exists.
+- If the requested Jira key was missing, Jira receives a newly created issue and the Slack reply states the requested key and the Jira-generated key.
 - n8n starts the local Claude worker.
-- Claude updates the app on `prototype/SYSCO-1`.
+- Claude updates the app on `prototype/<real-Jira-issue-key>`.
 - A PR opens against `main`.
-- A preview publishes under `/previews/SYSCO-1/<run-id>/`.
+- A preview publishes under `/previews/<real-Jira-issue-key>/<run-id>/`.
 - n8n receives the callback.
 - Jira receives completion details.
 - Slack receives a thread reply with preview, PR, Jira URL, and build status.
@@ -325,7 +328,9 @@ Expected result:
 
 - `SLACK_RECEIVED failed`: check Slack signing secret, webhook URL, tunnel, and system clock.
 - Slack URL verification fails: confirm workflow is active and `N8N_WEBHOOK_URL` points to the tunnel origin.
-- `JIRA_VALIDATED failed`: check Jira auth header, issue key, and project permissions.
+- `JIRA_LOOKUP failed`: check Jira auth header, project key, and permissions.
+- `JIRA_CREATED failed`: Jira returned 404 for the requested issue but n8n could not create a replacement issue. Check project issue types and create permissions.
+- `JIRA_VALIDATED failed`: Jira found or created the issue, but a follow-up comment or transition failed.
 - `LOCAL_WORKER_STARTED failed`: check `npm run worker`, `LOCAL_WORKER_URL`, and `LOCAL_WORKER_SECRET`.
 - `CLAUDE_STARTED failed`: check `claude auth status` and confirm no metered API env vars are being used.
 - `PREVIEW_DEPLOYED` URL 404: confirm Pages is configured to branch `gh-pages` root and wait for Pages propagation.
@@ -337,6 +342,8 @@ Major stages are logged without secrets:
 
 ```text
 SLACK_RECEIVED
+JIRA_LOOKUP
+JIRA_CREATED
 JIRA_VALIDATED
 JIRA_UPDATED
 LOCAL_WORKER_STARTED

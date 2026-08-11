@@ -249,6 +249,9 @@ async function createOrUpdatePullRequest(job, state, log) {
     `Automated prototype update for ${state.issueKey}.`,
     '',
     `Correlation ID: ${job.correlation_id}`,
+    ...(job.jira_issue_was_created && job.original_requested_jira_issue_key !== state.issueKey
+      ? [`Original Slack-requested key: ${job.original_requested_jira_issue_key}`]
+      : []),
     `Slack channel: ${job.slack_channel_id}`,
     `Slack thread: ${job.slack_thread_ts}`,
     '',
@@ -320,6 +323,8 @@ async function sendCallback(job, state, status, errorMessage, log) {
     status,
     stage: state.stage,
     jira_issue_key: state.issueKey,
+    original_requested_jira_issue_key: job.original_requested_jira_issue_key,
+    jira_issue_was_created: job.jira_issue_was_created,
     correlation_id: job.correlation_id,
     slack_channel_id: job.slack_channel_id,
     slack_message_ts: job.slack_message_ts,
@@ -488,6 +493,8 @@ function normalizeJob(input) {
   if (!/^SYSCO-\d+$/.test(issue)) throw new Error(`Invalid SYSCO issue key: ${input.jira_issue_key}`);
   return {
     jira_issue_key: issue,
+    original_requested_jira_issue_key: String(input.original_requested_jira_issue_key || issue).toUpperCase(),
+    jira_issue_was_created: Boolean(input.jira_issue_was_created),
     jira_summary: String(input.jira_summary || '').slice(0, 1000),
     jira_description: String(input.jira_description || '').slice(0, 6000),
     requested_change: String(input.requested_change || '').slice(0, 6000),
@@ -505,6 +512,9 @@ function buildClaudePrompt(job) {
     'You are Claude Code running as a local implementation worker for a rapid prototype.',
     '',
     `Jira issue: ${job.jira_issue_key}`,
+    ...(job.jira_issue_was_created && job.original_requested_jira_issue_key !== job.jira_issue_key
+      ? [`Original Slack-requested key: ${job.original_requested_jira_issue_key}`, 'Jira created the issue above because the requested key did not exist.']
+      : []),
     `Jira summary: ${job.jira_summary}`,
     '',
     'Jira context:',

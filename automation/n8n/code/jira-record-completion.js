@@ -81,11 +81,19 @@ try {
   }
   const issueKey = input.jira_issue_key;
   const jiraIssueUrl = `${env('JIRA_BASE_URL').replace(/\/$/, '')}/browse/${issueKey}`;
+  const createdIssueLines =
+    input.jira_issue_was_created && input.original_requested_jira_issue_key && input.original_requested_jira_issue_key !== issueKey
+      ? [
+          `Original Slack-requested key: ${input.original_requested_jira_issue_key}`,
+          `Jira-created canonical issue: ${issueKey}`,
+        ]
+      : [];
   const success = input.status === 'success';
   const lines = success
     ? [
         'Prototype implementation completed.',
         `Correlation ID: ${input.correlation_id}`,
+        ...createdIssueLines,
         `Branch: ${input.branch}`,
         `Commit: ${input.commit_sha}`,
         `Build: ${input.build_result || 'unknown'}`,
@@ -96,6 +104,7 @@ try {
     : [
         'Prototype implementation failed.',
         `Correlation ID: ${input.correlation_id}`,
+        ...createdIssueLines,
         `Stage: ${input.stage || 'unknown'}`,
         `Build: ${input.build_result || 'failed'}`,
         `Run: ${input.run_url || 'unknown'}`,

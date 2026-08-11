@@ -56,9 +56,13 @@ if (!env('SLACK_BOT_TOKEN')) throw new Error('SLACK_COMPLETED failed: SLACK_BOT_
 
 const success = input.status === 'success';
 const jiraUrl = input.jira_issue_url || `${env('JIRA_BASE_URL')?.replace(/\/$/, '') || ''}/browse/${input.jira_issue_key}`;
+const createdIssueNotice =
+  input.jira_issue_was_created && input.original_requested_jira_issue_key && input.original_requested_jira_issue_key !== input.jira_issue_key
+    ? `Requested key ${input.original_requested_jira_issue_key} did not exist.\nCreated Jira issue ${input.jira_issue_key} and continued the automation.\n\n`
+    : '';
 const text = success
-  ? `${input.jira_issue_key} prototype update ready\n\nPrototype: ${input.preview_url}\nPull Request: ${input.pr_url}\nJira: ${jiraUrl}\n\nBuild: ${input.build_result === 'success' ? 'Passed' : input.build_result}\nCorrelation: ${input.correlation_id}`
-  : `${input.jira_issue_key} prototype automation failed\n\nStage: ${input.stage || 'unknown'}\nRun: ${input.run_url || 'unknown'}\nJira: ${jiraUrl}\nBuild: ${input.build_result || 'failed'}\nCorrelation: ${input.correlation_id}\nError: ${input.error_message || 'Unknown error'}`;
+  ? `${input.jira_issue_key} prototype update ready\n\n${createdIssueNotice}Prototype: ${input.preview_url}\nPull Request: ${input.pr_url}\nJira: ${jiraUrl}\n\nBuild: ${input.build_result === 'success' ? 'Passed' : input.build_result}\nCorrelation: ${input.correlation_id}`
+  : `${input.jira_issue_key} prototype automation failed\n\n${createdIssueNotice}Stage: ${input.stage || 'unknown'}\nRun: ${input.run_url || 'unknown'}\nJira: ${jiraUrl}\nBuild: ${input.build_result || 'failed'}\nCorrelation: ${input.correlation_id}\nError: ${input.error_message || 'Unknown error'}`;
 
 await postSlack(input.slack_channel_id, input.slack_thread_ts || input.slack_message_ts, text);
 console.log(JSON.stringify({ stage: 'SLACK_COMPLETED', correlationId: input.correlation_id, status: input.status }));
