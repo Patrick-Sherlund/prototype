@@ -108,7 +108,7 @@ async function runJob(job) {
       {
         cwd: repoRoot,
         stdin: readFileSync(promptPath, 'utf8'),
-        shell: process.platform === 'win32',
+        windowsCmd: process.platform === 'win32',
         timeoutMs: 15 * 60 * 1000,
         stripClaudeTokenEnv: true,
         log,
@@ -131,7 +131,7 @@ async function runJob(job) {
     state.stage = 'BUILD_PASSED';
     const build = await runCommand(npmCommand, ['run', 'build'], {
       cwd: repoRoot,
-      shell: process.platform === 'win32',
+      windowsCmd: process.platform === 'win32',
       timeoutMs: 2 * 60 * 1000,
       log,
     });
@@ -402,13 +402,13 @@ function runCommand(command, args, options = {}) {
 
   return new Promise((resolve) => {
     const started = Date.now();
+    const wrapped = wrapWindowsCommand(command, args, options);
     let child;
     try {
-      child = spawn(command, args, {
+      child = spawn(wrapped.command, wrapped.args, {
         cwd: options.cwd || repoRoot,
         env: childEnv,
         windowsHide: true,
-        shell: Boolean(options.shell),
         stdio: options.stdin ? ['pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'],
       });
     } catch (error) {
@@ -454,6 +454,20 @@ function runCommand(command, args, options = {}) {
       resolve({ code: 1, stdout, stderr: redact(error.message) });
     });
   });
+}
+
+function wrapWindowsCommand(command, args, options) {
+  if (process.platform === 'win32' && options.windowsCmd) {
+    return {
+      command: 'cmd.exe',
+      args: ['/d', '/s', '/c', [quoteCmd(command), ...args.map(quoteCmd)].join(' ')],
+    };
+  }
+  return { command, args };
+}
+
+function quoteCmd(value) {
+  return `"${String(value).replace(/"/g, '""')}"`;
 }
 
 function normalizeJob(input) {
