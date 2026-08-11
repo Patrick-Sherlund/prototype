@@ -14,6 +14,7 @@ mkdirSync(automationDir, { recursive: true });
 
 const existing = await health();
 if (existing.ok) {
+  if (existing.pid) writeFileSync(join(automationDir, 'local-worker.pid'), String(existing.pid));
   console.log(`Local worker already healthy at ${healthUrl}`);
   process.exit(0);
 }
@@ -47,7 +48,8 @@ process.exit(1);
 async function health() {
   try {
     const response = await fetch(healthUrl, { signal: AbortSignal.timeout(1000) });
-    return { ok: response.ok, status: response.status };
+    const body = await response.json().catch(() => ({}));
+    return { ok: response.ok, status: response.status, pid: body.pid };
   } catch {
     return { ok: false };
   }

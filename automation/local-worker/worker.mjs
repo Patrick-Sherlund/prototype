@@ -25,6 +25,7 @@ const server = createServer(async (request, response) => {
     if (request.method === 'GET' && request.url === '/healthz') {
       return sendJson(response, 200, {
         ok: true,
+        pid: process.pid,
         busy: Boolean(activeJob),
         activeCorrelationId: activeJob?.correlation_id || '',
       });
