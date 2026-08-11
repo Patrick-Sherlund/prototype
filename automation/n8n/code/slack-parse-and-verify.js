@@ -105,8 +105,8 @@ if (!configuredChannelId || event.channel !== configuredChannelId) {
   return [{ json: { ...base, shouldProcess: false, ignored: true, ignoreReason: 'wrong_channel' } }];
 }
 
-if (!issueMatch) {
-  return [{ json: { ...base, shouldProcess: false, ignored: true, ignoreReason: 'no_sysco_issue_key' } }];
+if (!text) {
+  return [{ json: { ...base, shouldProcess: false, ignored: true, ignoreReason: 'empty_message' } }];
 }
 
 const staticData = $getWorkflowStaticData('global');
@@ -120,11 +120,13 @@ if (body.event_id && staticData.seenSlackEvents[body.event_id]) {
 }
 if (body.event_id) staticData.seenSlackEvents[body.event_id] = now;
 
-const jiraIssueKey = issueMatch[0].toUpperCase();
-const requestedChange = normalizeText(text.replace(issueMatch[0], '')).replace(/^[-:\s]+/, '');
-const correlationId = makeCorrelation(jiraIssueKey, body.event_id, event.ts);
+const jiraIssueKey = issueMatch ? issueMatch[0].toUpperCase() : '';
+const requestedChange = issueMatch ? normalizeText(text.replace(issueMatch[0], '')).replace(/^[-:\s]+/, '') : text;
+const jiraIssueKeyProvided = Boolean(jiraIssueKey);
+const preliminaryKey = jiraIssueKey || `${env('JIRA_PROJECT_KEY') || 'SYSCO'}-NEW`;
+const correlationId = makeCorrelation(preliminaryKey, body.event_id, event.ts);
 
-console.log(JSON.stringify({ stage: 'SLACK_RECEIVED', correlationId, jiraIssueKey, slackChannelId: event.channel }));
+console.log(JSON.stringify({ stage: 'SLACK_RECEIVED', correlationId, jiraIssueKey, jiraIssueKeyProvided, slackChannelId: event.channel }));
 
 return [
   {
@@ -133,6 +135,9 @@ return [
       shouldProcess: true,
       ignored: false,
       jiraIssueKey,
+      requestedJiraIssueKey: jiraIssueKey,
+      originalJiraIssueKey: jiraIssueKey,
+      jiraIssueKeyProvided,
       requestedChange,
       correlationId,
     },

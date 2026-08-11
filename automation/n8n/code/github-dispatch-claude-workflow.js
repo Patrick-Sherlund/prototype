@@ -69,6 +69,9 @@ if (!input.shouldProcess || input.requestFailed) return [{ json: input }];
 
 try {
   requiredEnv(['LOCAL_WORKER_URL', 'LOCAL_WORKER_SECRET', 'N8N_WEBHOOK_URL']);
+  const originalRequestedJiraIssueKey = input.jiraIssueCreated
+    ? input.originalJiraIssueKey || ''
+    : input.originalJiraIssueKey || input.requestedJiraIssueKey || input.jiraIssueKey;
 
   const callbackBase = env('N8N_WEBHOOK_URL').replace(/\/$/, '');
   const callbackUrl = `${callbackBase}/webhook/poc/github/completion`;
@@ -83,7 +86,8 @@ try {
     },
     body: JSON.stringify({
       jira_issue_key: input.jiraIssueKey,
-      original_requested_jira_issue_key: input.originalJiraIssueKey || input.requestedJiraIssueKey || input.jiraIssueKey,
+      original_requested_jira_issue_key: originalRequestedJiraIssueKey,
+      jira_issue_key_provided: Boolean(input.jiraIssueKeyProvided),
       jira_issue_was_created: Boolean(input.jiraIssueCreated),
       jira_summary: truncate(input.jiraSummary, 900),
       jira_description: truncate(input.jiraDescriptionText, 6000),
@@ -105,8 +109,10 @@ try {
   await jiraComment(input.jiraIssueKey, [
     'LOCAL_WORKER_STARTED Claude prototype implementation worker.',
     `Correlation ID: ${input.correlationId}`,
-    ...(input.jiraIssueCreated && input.originalJiraIssueKey !== input.jiraIssueKey
+    ...(input.jiraIssueCreated && input.originalJiraIssueKey
       ? [`Original Slack-requested key: ${input.originalJiraIssueKey}`]
+      : input.jiraIssueCreated
+        ? ['No Jira key was provided in Slack.']
       : []),
     `Worker URL: ${env('LOCAL_WORKER_URL')}`,
     'The local worker will callback to n8n with PR, preview, commit, and build details.',

@@ -249,8 +249,10 @@ async function createOrUpdatePullRequest(job, state, log) {
     `Automated prototype update for ${state.issueKey}.`,
     '',
     `Correlation ID: ${job.correlation_id}`,
-    ...(job.jira_issue_was_created && job.original_requested_jira_issue_key !== state.issueKey
+    ...(job.jira_issue_was_created && job.original_requested_jira_issue_key && job.original_requested_jira_issue_key !== state.issueKey
       ? [`Original Slack-requested key: ${job.original_requested_jira_issue_key}`]
+      : job.jira_issue_was_created && !job.jira_issue_key_provided
+        ? ['No Jira key was provided in Slack; Jira assigned this issue key.']
       : []),
     `Slack channel: ${job.slack_channel_id}`,
     `Slack thread: ${job.slack_thread_ts}`,
@@ -324,6 +326,7 @@ async function sendCallback(job, state, status, errorMessage, log) {
     stage: state.stage,
     jira_issue_key: state.issueKey,
     original_requested_jira_issue_key: job.original_requested_jira_issue_key,
+    jira_issue_key_provided: job.jira_issue_key_provided,
     jira_issue_was_created: job.jira_issue_was_created,
     correlation_id: job.correlation_id,
     slack_channel_id: job.slack_channel_id,
@@ -491,9 +494,11 @@ function normalizeJob(input) {
   }
   const issue = String(input.jira_issue_key).toUpperCase();
   if (!/^SYSCO-\d+$/.test(issue)) throw new Error(`Invalid SYSCO issue key: ${input.jira_issue_key}`);
+  const hasOriginalRequestedKey = Object.prototype.hasOwnProperty.call(input, 'original_requested_jira_issue_key');
   return {
     jira_issue_key: issue,
-    original_requested_jira_issue_key: String(input.original_requested_jira_issue_key || issue).toUpperCase(),
+    original_requested_jira_issue_key: String(hasOriginalRequestedKey ? input.original_requested_jira_issue_key || '' : issue).toUpperCase(),
+    jira_issue_key_provided: Boolean(input.jira_issue_key_provided),
     jira_issue_was_created: Boolean(input.jira_issue_was_created),
     jira_summary: String(input.jira_summary || '').slice(0, 1000),
     jira_description: String(input.jira_description || '').slice(0, 6000),
@@ -512,8 +517,10 @@ function buildClaudePrompt(job) {
     'You are Claude Code running as a local implementation worker for a rapid prototype.',
     '',
     `Jira issue: ${job.jira_issue_key}`,
-    ...(job.jira_issue_was_created && job.original_requested_jira_issue_key !== job.jira_issue_key
+    ...(job.jira_issue_was_created && job.original_requested_jira_issue_key && job.original_requested_jira_issue_key !== job.jira_issue_key
       ? [`Original Slack-requested key: ${job.original_requested_jira_issue_key}`, 'Jira created the issue above because the requested key did not exist.']
+      : job.jira_issue_was_created && !job.jira_issue_key_provided
+        ? ['No Jira key was provided in Slack.', 'Jira created the issue above and assigned the canonical key.']
       : []),
     `Jira summary: ${job.jira_summary}`,
     '',

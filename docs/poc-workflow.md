@@ -220,7 +220,7 @@ Create a Slack app in the `Sysco-Demo` workspace.
 16. Subscribe to bot event: `message.channels`.
 17. Save changes and reinstall the app if Slack prompts for reinstall.
 
-The workflow ignores bot messages, Slack retries, messages outside `C0BP62TK3PD`, and messages without a `SYSCO-<number>` key.
+The workflow ignores bot messages, Slack retries, messages outside `C0BP62TK3PD`, and empty messages. A human message may include a `SYSCO-<number>` key or omit the key entirely. If no key is supplied, n8n creates a new Jira issue and uses Jira's generated key as the canonical work item.
 
 ## Jira Setup
 
@@ -261,7 +261,7 @@ SYSCO-1
 Change the "Reorder" button on the order history screen to "Buy Again" and make it more visually prominent.
 ```
 
-If the Slack message references a `SYSCO-<number>` key that Jira returns as missing, n8n creates a new issue in the configured `SYSCO` project. The workflow selects an available non-subtask issue type from the project, preferring `Story`, then `Task`, then `Feature`. Jira assigns the real key; the workflow preserves the Slack-requested key for traceability, then uses the Jira-generated key as the canonical identifier for the correlation ID, worker branch, commit, PR, preview path, Jira completion comment, and Slack completion reply.
+If the Slack message omits a Jira key, n8n creates a new issue in the configured `SYSCO` project. If the Slack message references a `SYSCO-<number>` key that Jira returns as missing, n8n also creates a new issue. The workflow selects an available non-subtask issue type from the project, preferring `Story`, then `Task`, then `Feature`. Jira assigns the real key; the workflow preserves the Slack-requested key when one was provided, then uses the Jira-generated key as the canonical identifier for the correlation ID, worker branch, commit, PR, preview path, Jira completion comment, and Slack completion reply.
 
 ## GitHub Setup
 
@@ -304,7 +304,7 @@ Do not use `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` for this POC path.
 4. Import and activate workflows.
 5. Start the local worker with `npm run worker:start`.
 6. Confirm the Slack app request URL is verified.
-7. Use existing Jira issue `SYSCO-6`, create a Jira demo issue with `npm run create:jira-demo`, or intentionally post a missing key to validate issue creation.
+7. Use existing Jira issue `SYSCO-6`, create a Jira demo issue with `npm run create:jira-demo`, post a missing key, or post a request without any key to validate Jira issue creation.
 8. Post in Slack channel `C0BP62TK3PD`:
 
 ```text
@@ -315,6 +315,7 @@ Change the "Reorder" button on the order history screen to "Buy Again" and make 
 Expected result:
 
 - Jira receives a Slack request comment and moves active if a valid transition exists.
+- If no Jira key was supplied, Jira receives a newly created issue and the Slack reply states the Jira-generated key.
 - If the requested Jira key was missing, Jira receives a newly created issue and the Slack reply states the requested key and the Jira-generated key.
 - n8n starts the local Claude worker.
 - Claude updates the app on `prototype/<real-Jira-issue-key>`.

@@ -59,6 +59,8 @@ const jiraUrl = input.jira_issue_url || `${env('JIRA_BASE_URL')?.replace(/\/$/, 
 const createdIssueNotice =
   input.jira_issue_was_created && input.original_requested_jira_issue_key && input.original_requested_jira_issue_key !== input.jira_issue_key
     ? `Requested key ${input.original_requested_jira_issue_key} did not exist.\nCreated Jira issue ${input.jira_issue_key} and continued the automation.\n\n`
+    : input.jira_issue_was_created && !input.jira_issue_key_provided
+      ? `No Jira key was provided.\nCreated Jira issue ${input.jira_issue_key} and continued the automation.\n\n`
     : '';
 const text = success
   ? `${input.jira_issue_key} prototype update ready\n\n${createdIssueNotice}Prototype: ${input.preview_url}\nPull Request: ${input.pr_url}\nJira: ${jiraUrl}\n\nBuild: ${input.build_result === 'success' ? 'Passed' : input.build_result}\nCorrelation: ${input.correlation_id}`

@@ -100,7 +100,10 @@ async function createIssueFromSlackRequest(input, requestedJiraIssueKey) {
     throw new Error(`No usable issue type found for project ${projectKey}`);
   }
 
-  const slackRequestText = `${requestedJiraIssueKey}\n${input.requestedChange || ''}`.trim();
+  const suppliedKeyLine = requestedJiraIssueKey
+    ? `Requested key ${requestedJiraIssueKey} did not exist.`
+    : 'No Jira key was provided in the Slack request.';
+  const slackRequestText = [requestedJiraIssueKey, input.requestedChange || ''].filter(Boolean).join('\n').trim();
   const created = await jiraFetch('/rest/api/3/issue', {
     method: 'POST',
     body: JSON.stringify({
@@ -109,7 +112,7 @@ async function createIssueFromSlackRequest(input, requestedJiraIssueKey) {
         issuetype: { id: issueType.id },
         summary: summaryFromRequest(input.requestedChange),
         description: docParagraphs([
-          `Created by the Slack prototype automation because requested key ${requestedJiraIssueKey} did not exist.`,
+          `Created by the Slack prototype automation. ${suppliedKeyLine}`,
           `Slack channel: ${input.slackChannelId}`,
           `Slack message ts: ${input.slackMessageTs}`,
           `Slack thread ts: ${input.slackThreadTs}`,
@@ -162,28 +165,33 @@ if (!input.shouldProcess) return [{ json: input }];
 let failureStage = 'JIRA_LOOKUP';
 try {
   requiredEnv(['JIRA_BASE_URL', 'JIRA_PROJECT_KEY', 'JIRA_AUTH_HEADER']);
-  if (!input.jiraIssueKey.startsWith(`${env('JIRA_PROJECT_KEY')}-`)) {
+  const projectKey = env('JIRA_PROJECT_KEY');
+  const hasRequestedIssueKey = Boolean(input.jiraIssueKey);
+  if (hasRequestedIssueKey && !input.jiraIssueKey.startsWith(`${projectKey}-`)) {
     throw new Error(`Issue ${input.jiraIssueKey} is outside configured project ${env('JIRA_PROJECT_KEY')}`);
   }
 
-  const requestedJiraIssueKey = (input.requestedJiraIssueKey || input.originalJiraIssueKey || input.jiraIssueKey).toUpperCase();
+  const requestedJiraIssueKey = hasRequestedIssueKey
+    ? (input.requestedJiraIssueKey || input.originalJiraIssueKey || input.jiraIssueKey).toUpperCase()
+    : '';
   const originalCorrelationId = input.correlationId;
-  let canonicalIssueKey = input.jiraIssueKey;
+  let canonicalIssueKey = input.jiraIssueKey || '';
   let jiraIssueCreated = false;
   let createdIssueType = '';
   let issue;
 
-  console.log(JSON.stringify({ stage: 'JIRA_LOOKUP', correlationId: input.correlationId, requestedJiraIssueKey }));
+  console.log(
+    JSON.stringify({
+      stage: 'JIRA_LOOKUP',
+      correlationId: input.correlationId,
+      requestedJiraIssueKey,
+      lookupSkipped: !hasRequestedIssueKey,
+    }),
+  );
 
-  try {
-    issue = await jiraFetch(
-      `/rest/api/3/issue/${encodeURIComponent(canonicalIssueKey)}?fields=summary,description,status,issuetype,priority`,
-    );
-  } catch (error) {
-    if (error.status !== 404) throw error;
-
+  if (!hasRequestedIssueKey) {
     failureStage = 'JIRA_CREATED';
-    const created = await createIssueFromSlackRequest(input, requestedJiraIssueKey);
+    const created = await createIssueFromSlackRequest(input, '');
     canonicalIssueKey = created.key;
     createdIssueType = created.issueTypeName;
     jiraIssueCreated = true;
@@ -194,9 +202,10 @@ try {
         stage: 'JIRA_CREATED',
         originalCorrelationId,
         correlationId: canonicalCorrelationId,
-        requestedJiraIssueKey,
+        requestedJiraIssueKey: '',
         jiraIssueKey: canonicalIssueKey,
         issueType: createdIssueType,
+        reason: 'no_slack_issue_key',
       }),
     );
 
@@ -204,6 +213,38 @@ try {
     issue = await jiraFetch(
       `/rest/api/3/issue/${encodeURIComponent(canonicalIssueKey)}?fields=summary,description,status,issuetype,priority`,
     );
+  } else {
+    try {
+      issue = await jiraFetch(
+        `/rest/api/3/issue/${encodeURIComponent(canonicalIssueKey)}?fields=summary,description,status,issuetype,priority`,
+      );
+    } catch (error) {
+      if (error.status !== 404) throw error;
+
+      failureStage = 'JIRA_CREATED';
+      const created = await createIssueFromSlackRequest(input, requestedJiraIssueKey);
+      canonicalIssueKey = created.key;
+      createdIssueType = created.issueTypeName;
+      jiraIssueCreated = true;
+      const canonicalCorrelationId = makeCorrelation(canonicalIssueKey, input.slackEventId, input.slackMessageTs);
+
+      console.log(
+        JSON.stringify({
+          stage: 'JIRA_CREATED',
+          originalCorrelationId,
+          correlationId: canonicalCorrelationId,
+          requestedJiraIssueKey,
+          jiraIssueKey: canonicalIssueKey,
+          issueType: createdIssueType,
+          reason: 'requested_key_missing',
+        }),
+      );
+
+      input.correlationId = canonicalCorrelationId;
+      issue = await jiraFetch(
+        `/rest/api/3/issue/${encodeURIComponent(canonicalIssueKey)}?fields=summary,description,status,issuetype,priority`,
+      );
+    }
   }
 
   const jiraDescriptionText = adfToText(issue.fields?.description).slice(0, 6000);
@@ -228,10 +269,12 @@ try {
         `SLACK_RECEIVED prototype request`,
         `Correlation ID: ${input.correlationId}`,
         ...(jiraIssueCreated
-          ? [
-              `Requested key ${requestedJiraIssueKey} did not exist.`,
-              `Created Jira issue ${canonicalIssueKey} and continued the automation.`,
-            ]
+          ? requestedJiraIssueKey
+            ? [
+                `Requested key ${requestedJiraIssueKey} did not exist.`,
+                `Created Jira issue ${canonicalIssueKey} and continued the automation.`,
+              ]
+            : ['No Jira key was provided in Slack.', `Created Jira issue ${canonicalIssueKey} and continued the automation.`]
           : [`Requested Jira key: ${requestedJiraIssueKey}`]),
         `Slack channel: ${input.slackChannelId}`,
         `Slack message ts: ${input.slackMessageTs}`,
@@ -274,6 +317,7 @@ try {
         jiraIssueKey: canonicalIssueKey,
         requestedJiraIssueKey,
         originalJiraIssueKey: requestedJiraIssueKey,
+        jiraIssueKeyProvided: hasRequestedIssueKey,
         originalCorrelationId,
         jiraIssueCreated,
         createdIssueType,
@@ -293,7 +337,7 @@ try {
         requestFailed: true,
         failureStage,
         errorMessage: String(error.message || error).slice(0, 900),
-        jiraIssueUrl: `${env('JIRA_BASE_URL')?.replace(/\/$/, '') || ''}/browse/${input.jiraIssueKey}`,
+        jiraIssueUrl: input.jiraIssueKey ? `${env('JIRA_BASE_URL')?.replace(/\/$/, '') || ''}/browse/${input.jiraIssueKey}` : '',
       },
     },
   ];

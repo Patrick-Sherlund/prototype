@@ -87,6 +87,11 @@ try {
           `Original Slack-requested key: ${input.original_requested_jira_issue_key}`,
           `Jira-created canonical issue: ${issueKey}`,
         ]
+      : input.jira_issue_was_created && !input.jira_issue_key_provided
+        ? [
+            'No Jira key was provided in Slack.',
+            `Jira-created canonical issue: ${issueKey}`,
+          ]
       : [];
   const success = input.status === 'success';
   const lines = success
