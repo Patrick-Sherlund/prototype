@@ -752,6 +752,31 @@ button {
   font-size: 13px;
 }
 
+.history-eta {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 8px;
+  border-radius: 999px;
+  padding: 4px 10px 4px 4px;
+  color: var(--green-600);
+  background: var(--green-100);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.eta-icon {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  color: #ffffff;
+  background: var(--green-600);
+  font-size: 11px;
+}
+
 .buy-again-button {
   display: inline-flex;
   align-items: center;

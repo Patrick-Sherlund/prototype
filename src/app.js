@@ -80,9 +80,9 @@ const products = [
 ];
 
 const orderHistory = [
-  { id: '10482', date: 'Aug 6, 2026', items: [{ id: 1, qty: 6 }, { id: 2, qty: 2 }, { id: 3, qty: 4 }] },
-  { id: '10419', date: 'Jul 28, 2026', items: [{ id: 4, qty: 3 }, { id: 6, qty: 2 }] },
-  { id: '10357', date: 'Jul 15, 2026', items: [{ id: 5, qty: 4 }, { id: 1, qty: 2 }] },
+  { id: '10482', date: 'Aug 6, 2026', eta: 'Tomorrow, 5-7 AM', items: [{ id: 1, qty: 6 }, { id: 2, qty: 2 }, { id: 3, qty: 4 }] },
+  { id: '10419', date: 'Jul 28, 2026', eta: 'Tue, Aug 18', items: [{ id: 4, qty: 3 }, { id: 6, qty: 2 }] },
+  { id: '10357', date: 'Jul 15, 2026', eta: 'Wed, Aug 19', items: [{ id: 5, qty: 4 }, { id: 1, qty: 2 }] },
 ];
 
 const categories = ['All Categories', 'Produce', 'Meats', 'Bakery', 'Beverages', 'Supplies'];
@@ -252,6 +252,7 @@ function renderOrderHistory() {
             <span class="history-date">Order #${escapeHtml(order.id)} - ${escapeHtml(order.date)}</span>
             <strong>${cases} cases - ${money.format(total)}</strong>
             <p>${escapeHtml(preview + extra)}</p>
+            <span class="history-eta"><span class="eta-icon" aria-hidden="true">D</span>Delivery ETA - ${escapeHtml(order.eta)}</span>
           </div>
           <button class="buy-again-button" data-action="buy-again" data-order="${escapeHtml(order.id)}">
             <span aria-hidden="true">+</span>
