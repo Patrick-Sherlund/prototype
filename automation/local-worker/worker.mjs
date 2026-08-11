@@ -178,6 +178,10 @@ async function prepareBranch(state, log) {
     }
   } else if (localExists) {
     await runRequired('git', ['switch', state.branch], { cwd: repoRoot, log });
+    const merge = await runCommand('git', ['merge', '--no-edit', 'origin/main'], { cwd: repoRoot, log });
+    if (merge.code !== 0) {
+      throw new Error(`Could not merge origin/main into existing local ${state.branch}: ${summarizeOutput(merge)}`);
+    }
   } else {
     await runRequired('git', ['switch', '-c', state.branch, 'origin/main'], { cwd: repoRoot, log });
   }
