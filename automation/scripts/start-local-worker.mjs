@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -19,8 +19,8 @@ if (existing.ok) {
   process.exit(0);
 }
 
-const stdout = createWriteStream(join(automationDir, 'worker.stdout.log'), { flags: 'a' });
-const stderr = createWriteStream(join(automationDir, 'worker.stderr.log'), { flags: 'a' });
+const stdout = openSync(join(automationDir, 'worker.stdout.log'), 'a');
+const stderr = openSync(join(automationDir, 'worker.stderr.log'), 'a');
 const child = spawn(process.execPath, ['automation/local-worker/worker.mjs'], {
   cwd: repoRoot,
   detached: true,
@@ -30,8 +30,6 @@ const child = spawn(process.execPath, ['automation/local-worker/worker.mjs'], {
 
 writeFileSync(join(automationDir, 'local-worker.pid'), String(child.pid));
 child.unref();
-stdout.unref();
-stderr.unref();
 
 for (let attempt = 1; attempt <= 20; attempt += 1) {
   await delay(500);
