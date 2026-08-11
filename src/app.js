@@ -79,6 +79,12 @@ const products = [
   },
 ];
 
+const orderHistory = [
+  { id: '10482', date: 'Aug 6, 2026', items: [{ id: 1, qty: 6 }, { id: 2, qty: 2 }, { id: 3, qty: 4 }] },
+  { id: '10419', date: 'Jul 28, 2026', items: [{ id: 4, qty: 3 }, { id: 6, qty: 2 }] },
+  { id: '10357', date: 'Jul 15, 2026', items: [{ id: 5, qty: 4 }, { id: 1, qty: 2 }] },
+];
+
 const categories = ['All Categories', 'Produce', 'Meats', 'Bakery', 'Beverages', 'Supplies'];
 const navItems = [
   ['Products', 'P'],
@@ -225,11 +231,44 @@ function renderCart() {
           .join('');
 }
 
+function orderLines(order) {
+  return order.items
+    .map((item) => ({ product: products.find((product) => product.id === item.id), qty: item.qty }))
+    .filter((line) => line.product);
+}
+
+function renderOrderHistory() {
+  byId('history-list').innerHTML = orderHistory
+    .map((order) => {
+      const lines = orderLines(order);
+      const cases = lines.reduce((sum, line) => sum + line.qty, 0);
+      const total = lines.reduce((sum, line) => sum + line.product.casePrice * line.qty, 0);
+      const names = lines.map((line) => line.product.name);
+      const preview = names.slice(0, 2).join(', ');
+      const extra = names.length > 2 ? ` +${names.length - 2} more` : '';
+      return `
+        <article class="history-row">
+          <div class="history-info">
+            <span class="history-date">Order #${escapeHtml(order.id)} - ${escapeHtml(order.date)}</span>
+            <strong>${cases} cases - ${money.format(total)}</strong>
+            <p>${escapeHtml(preview + extra)}</p>
+          </div>
+          <button class="buy-again-button" data-action="buy-again" data-order="${escapeHtml(order.id)}">
+            <span aria-hidden="true">+</span>
+            Buy Again
+          </button>
+        </article>
+      `;
+    })
+    .join('');
+}
+
 function render() {
   renderNav();
   renderFilters();
   renderProducts();
   renderCart();
+  renderOrderHistory();
 }
 
 document.addEventListener('click', (event) => {
@@ -248,6 +287,16 @@ document.addEventListener('click', (event) => {
 
   if (button.dataset.action === 'qty') {
     updateQuantity(Number(button.dataset.product), Number(button.dataset.delta));
+  }
+
+  if (button.dataset.action === 'buy-again') {
+    const order = orderHistory.find((entry) => entry.id === button.dataset.order);
+    if (order) {
+      order.items.forEach((item) => {
+        state.cart[item.id] = (state.cart[item.id] || 0) + item.qty;
+      });
+      render();
+    }
   }
 });
 
