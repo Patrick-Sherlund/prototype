@@ -153,12 +153,20 @@ try {
       result.proposedStatus = canTransition ? transition.to?.name || transition.name || '' : alreadyInTarget ? result.currentStatus : '';
 
       if (input.dryRun) {
-        result.action = canTransition && !alreadyInTarget ? 'would_transition' : item.addComment ? 'would_comment' : 'no_status_change';
+        if (canTransition && !alreadyInTarget) {
+          result.action = 'would_transition';
+        } else if (!alreadyInTarget && !transition && !['no_change', 'clarification'].includes(item.desiredState) && item.confidence === 'high') {
+          result.action = 'no_matching_transition';
+        } else {
+          result.action = item.addComment ? 'would_comment' : 'no_status_change';
+        }
         result.result = 'dry_run';
         result.reason =
-          item.confidence !== 'high' && !['no_change', 'clarification'].includes(item.desiredState)
-            ? 'Medium confidence: comment only; no status transition proposed.'
-            : item.summary || item.evidence || 'Proposed from standup transcript.';
+          result.action === 'no_matching_transition'
+            ? `No available Jira transition matched semantic state ${item.desiredState}.`
+            : item.confidence !== 'high' && !['no_change', 'clarification'].includes(item.desiredState)
+              ? 'Medium confidence: comment only; no status transition proposed.'
+              : item.summary || item.evidence || 'Proposed from standup transcript.';
         results.push(result);
         continue;
       }

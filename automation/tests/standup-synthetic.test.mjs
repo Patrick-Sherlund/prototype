@@ -134,6 +134,16 @@ async function testSummaryCases() {
         result: 'failed',
         reason: 'Synthetic one-issue failure.',
       },
+      {
+        issueKey: 'SYSCO-11',
+        issueUrl: 'https://example.atlassian.net/browse/SYSCO-11',
+        currentStatus: 'In Progress',
+        proposedStatus: '',
+        action: 'no_matching_transition',
+        result: 'dry_run',
+        reason: 'No available Jira transition matched semantic state review.',
+        evidence: 'SYSCO-11 is ready for review.',
+      },
     ],
   };
 
@@ -143,6 +153,8 @@ async function testSummaryCases() {
   assert.match(text, /No Jira changes were made/, 'dry-run reports no mutation');
   assert.match(text, /SYSCO-999  Not found/, 'invalid Jira issue reported');
   assert.match(text, /SYSCO-10  Failed/, 'one issue failing is reported');
+  assert.match(text, /SYSCO-11  No matching transition/, 'missing Jira transition reported');
+  assert.match(text, /No available Jira transition matched semantic state review/, 'missing transition reason included');
 
   const noIssueSummary = await runCode('standup-build-summary.js', {
     authorized: true,

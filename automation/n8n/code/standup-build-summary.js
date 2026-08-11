@@ -18,7 +18,8 @@ function detailForResult(result) {
   if (result.result === 'dry_run') {
     const current = result.currentStatus ? `Current: ${result.currentStatus}` : 'Current: unknown';
     const proposed = result.proposedStatus ? `Proposed: ${result.proposedStatus}` : 'Proposed: no status change';
-    return `${current}; ${proposed}`;
+    const detail = `${current}; ${proposed}`;
+    return result.action === 'no_matching_transition' && result.reason ? `${detail}; ${result.reason}` : detail;
   }
   if (result.result === 'not_found') return 'No changes made.';
   if (result.result === 'failed') return result.reason || 'No changes made.';
