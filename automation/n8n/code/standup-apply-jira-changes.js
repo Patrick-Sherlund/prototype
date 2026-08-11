@@ -70,7 +70,7 @@ async function jiraFetch(path, options = {}) {
 
 function transitionPatterns(desiredState) {
   if (desiredState === 'in_progress') return [/in progress/i, /start/i, /doing/i, /active/i, /selected for development/i];
-  if (desiredState === 'review') return [/review/i, /ready/i, /qa/i, /validate/i];
+  if (desiredState === 'review') return [/review/i, /ready/i, /qa/i, /test/i, /testing/i, /validate/i];
   if (desiredState === 'done') return [/done/i, /closed/i, /complete/i, /completed/i, /resolved/i];
   if (desiredState === 'blocked') return [/blocked/i, /impediment/i, /on hold/i, /waiting/i];
   return [];
