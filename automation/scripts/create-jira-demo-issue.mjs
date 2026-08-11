@@ -34,10 +34,12 @@ async function jira(path, options = {}) {
 
 const project = await jira(`/rest/api/3/project/${encodeURIComponent(process.env.JIRA_PROJECT_KEY)}`);
 const issueTypes = project.issueTypes || [];
+const standardIssueTypes = issueTypes.filter((type) => !type.subtask);
 const issueType =
-  issueTypes.find((type) => /story/i.test(type.name)) ||
-  issueTypes.find((type) => /task/i.test(type.name)) ||
-  issueTypes.find((type) => !type.subtask) ||
+  standardIssueTypes.find((type) => /story/i.test(type.name)) ||
+  standardIssueTypes.find((type) => /feature/i.test(type.name)) ||
+  standardIssueTypes.find((type) => /^task$/i.test(type.name)) ||
+  standardIssueTypes[0] ||
   issueTypes[0];
 
 if (!issueType?.id) {
