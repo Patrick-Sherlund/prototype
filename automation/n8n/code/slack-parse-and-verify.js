@@ -28,6 +28,12 @@ function makeCorrelation(issueKey, eventId, ts) {
   return source.toUpperCase().replace(/[^A-Z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 }
 
+function makeStandupCorrelation(eventId, ts) {
+  const date = new Date();
+  const stamp = date.toISOString().replace(/[-:]/g, '').replace(/\..+$/, '').replace('T', '-');
+  return makeCorrelation(`STANDUP-${stamp}`, eventId, ts);
+}
+
 const item = $input.first();
 const headers = item.json.headers || {};
 const rawBody = rawBodyFrom(item);
@@ -107,6 +113,39 @@ if (!configuredChannelId || event.channel !== configuredChannelId) {
 
 if (!text) {
   return [{ json: { ...base, shouldProcess: false, ignored: true, ignoreReason: 'empty_message' } }];
+}
+
+const standupMatch = text.match(/^STANDUP(?:\s+DRY\s+RUN)?\b/i);
+if (standupMatch) {
+  const dryRun = /^STANDUP\s+DRY\s+RUN\b/i.test(standupMatch[0]);
+  const transcript = normalizeText(text.slice(standupMatch[0].length));
+  if (!transcript) {
+    return [{ json: { ...base, shouldProcess: false, ignored: true, ignoreReason: 'empty_standup_transcript' } }];
+  }
+
+  const correlationId = makeStandupCorrelation(body.event_id, event.ts);
+  console.log(
+    JSON.stringify({
+      stage: 'STANDUP_RECEIVED',
+      correlationId,
+      dryRun,
+      slackChannelId: event.channel,
+    }),
+  );
+
+  return [
+    {
+      json: {
+        ...base,
+        shouldProcess: false,
+        standupShouldProcess: true,
+        ignored: false,
+        standupDryRun: dryRun,
+        standupTranscript: transcript,
+        correlationId,
+      },
+    },
+  ];
 }
 
 const staticData = $getWorkflowStaticData('global');

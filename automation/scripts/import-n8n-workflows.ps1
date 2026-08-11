@@ -12,9 +12,13 @@ docker compose -p $ComposeProject exec -T n8n n8n import:workflow --input=/workf
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 docker compose -p $ComposeProject exec -T n8n n8n import:workflow --input=/workflows/github-completion-workflow.json
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+docker compose -p $ComposeProject exec -T n8n n8n import:workflow --input=/workflows/standup-jira-workflow.json
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 docker compose -p $ComposeProject exec -T n8n n8n publish:workflow --id=pocSlackRequest
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 docker compose -p $ComposeProject exec -T n8n n8n publish:workflow --id=pocGithubCompletion
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+docker compose -p $ComposeProject exec -T n8n n8n publish:workflow --id=pocStandupJira
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 docker compose -p $ComposeProject exec -T n8n n8n list:workflow | Out-Host
 

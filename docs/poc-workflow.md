@@ -34,6 +34,20 @@ Local n8n Completion Workflow ------------------------+
   | Jira completion comment + Slack thread reply
   v
 Slack original thread
+
+Second independent Jira-management path:
+
+Slack STANDUP message
+  |
+  v
+Local n8n Standup Workflow
+  |  - route away from prototype automation
+  |  - analyze transcript with local Claude
+  |  - validate structured action plan
+  |  - retrieve Jira issues/transitions
+  |  - apply Jira comments/status changes or dry-run
+  v
+Slack original standup thread
 ```
 
 ## Repository
@@ -70,6 +84,7 @@ Put local n8n secrets in `.env`, copied from `.env.example`. Do not commit `.env
 | `N8N_CALLBACK_SECRET` | `.env` | Yes | Shared secret for worker -> n8n callback |
 | `LOCAL_WORKER_SECRET` | `.env` | Yes | Shared secret for n8n -> local worker requests |
 | `LOCAL_WORKER_URL` | `.env` | No | URL n8n uses to reach the Windows host worker |
+| `STANDUP_INTERNAL_SECRET` | `.env` | Yes | Optional internal n8n routing secret; falls back to `LOCAL_WORKER_SECRET` |
 
 Generate `N8N_CALLBACK_SECRET` locally:
 
@@ -108,10 +123,11 @@ npm run build:workflows
 .\automation\scripts\import-n8n-workflows.ps1
 ```
 
-Open `http://localhost:5678`, review both workflows, and activate:
+Open `http://localhost:5678`, review the workflows, and activate:
 
 - `POC A - Slack Request to Claude Prototype`
 - `POC B - GitHub Completion to Jira and Slack`
+- `POC C - Standup Transcript to Jira Summary`
 
 Stop:
 
@@ -196,6 +212,8 @@ LOCAL_WORKER_URL=http://host.docker.internal:8787
 
 The worker strips `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, and `ANTHROPIC_AUTH_TOKEN` from the Claude child process so local Claude uses the existing authenticated `claude.ai` Pro session.
 
+The same worker also exposes a standup analysis endpoint. That endpoint only asks Claude to return structured JSON for a transcript; it does not run git, create branches, modify prototype files, open PRs, publish previews, or run builds.
+
 ## Slack Setup
 
 Create a Slack app in the `Sysco-Demo` workspace.
@@ -262,6 +280,71 @@ Change the "Reorder" button on the order history screen to "Buy Again" and make 
 ```
 
 If the Slack message omits a Jira key, n8n creates a new issue in the configured `SYSCO` project. If the Slack message references a `SYSCO-<number>` key that Jira returns as missing, n8n also creates a new issue. The workflow selects an available non-subtask issue type from the project, preferring `Story`, then `Task`, then `Feature`. Jira assigns the real key; the workflow preserves the Slack-requested key when one was provided, then uses the Jira-generated key as the canonical identifier for the correlation ID, worker branch, commit, PR, preview path, Jira completion comment, and Slack completion reply.
+
+## Standup Jira Automation
+
+The standup workflow is separate from prototype implementation. It performs Jira management only:
+
+```text
+Slack STANDUP transcript -> n8n -> local Claude transcript analysis -> Jira comments/transitions -> Slack summary
+```
+
+It never invokes the prototype coding path and never creates branches, PRs, builds, or previews.
+
+Dry-run format:
+
+```text
+STANDUP DRY RUN
+
+Patrick:
+SYSCO-6 is ready for review.
+
+Shelby:
+SYSCO-8 is completely done.
+
+Patrick:
+SYSCO-10 is blocked waiting on backend API access.
+```
+
+Live format:
+
+```text
+STANDUP
+
+Patrick:
+SYSCO-6 is ready for review.
+
+Shelby:
+SYSCO-8 is completely done.
+```
+
+Supported semantic states:
+
+- `in_progress`: started, working on, in progress.
+- `review`: ready for review, needs review, finished implementation.
+- `done`: done, completed, finished and accepted, close this.
+- `blocked`: blocked, waiting on, cannot continue until.
+- `no_change`: continuing work, needs another day, still in progress.
+- `clarification`: ambiguous or low-confidence updates.
+
+Safety rules:
+
+- Jira transition IDs are never hard-coded.
+- Each issue is retrieved independently.
+- Available transitions are inspected per issue before mapping semantic intent to Jira workflow states.
+- High-confidence actions may transition Jira.
+- Medium-confidence actions may add a comment but avoid status transitions.
+- Low-confidence actions do not mutate Jira and are reported as needing clarification.
+- Unknown issues mentioned in a standup are not created; they are reported as not found.
+- One issue failure does not prevent other issue updates.
+- The full transcript is not pasted into every ticket; comments use ticket-specific evidence and a correlation ID.
+
+Dry-run mode retrieves Jira issues and transitions, builds a proposed action plan, and replies in Slack without mutating Jira.
+
+Limitations:
+
+- Assignee, priority, and description updates are intentionally not implemented yet; the workflow only comments and transitions statuses.
+- Claude output is accepted only as validated structured JSON.
 
 ## GitHub Setup
 
@@ -336,6 +419,10 @@ Expected result:
 - `CLAUDE_STARTED failed`: check `claude auth status` and confirm no metered API env vars are being used.
 - `PREVIEW_DEPLOYED` URL 404: confirm Pages is configured to branch `gh-pages` root and wait for Pages propagation.
 - `N8N_CALLBACK_SENT failed`: confirm tunnel is still running and `N8N_CALLBACK_SECRET` matches in `.env`.
+- `TRANSCRIPT_PARSED failed`: check local worker health and local `claude auth status`.
+- `ACTION_PLAN_CREATED failed`: Claude did not return valid structured JSON.
+- `JIRA_UPDATES_STARTED failed`: check Jira auth and project permissions.
+- Standup Slack reply missing: check `SLACK_BOT_TOKEN`, channel membership, and the original thread timestamp.
 
 ## Observability
 
@@ -343,6 +430,13 @@ Major stages are logged without secrets:
 
 ```text
 SLACK_RECEIVED
+STANDUP_RECEIVED
+TRANSCRIPT_PARSED
+JIRA_ISSUES_RESOLVED
+ACTION_PLAN_CREATED
+JIRA_UPDATES_STARTED
+JIRA_UPDATES_COMPLETED
+SLACK_SUMMARY_SENT
 JIRA_LOOKUP
 JIRA_CREATED
 JIRA_VALIDATED

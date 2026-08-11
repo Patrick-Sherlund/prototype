@@ -21,6 +21,7 @@ const claudeCommand = resolveClaudeCommand();
 const claudeMaxTurns = env('CLAUDE_MAX_TURNS', '24');
 
 let activeJob = null;
+let activeStandupJob = null;
 
 const server = createServer(async (request, response) => {
   try {
@@ -28,9 +29,34 @@ const server = createServer(async (request, response) => {
       return sendJson(response, 200, {
         ok: true,
         pid: process.pid,
-        busy: Boolean(activeJob),
+        busy: Boolean(activeJob || activeStandupJob),
         activeCorrelationId: activeJob?.correlation_id || '',
+        activeStandupCorrelationId: activeStandupJob?.correlation_id || '',
       });
+    }
+
+    if (request.method === 'POST' && request.url === '/poc/standup/analyze') {
+      if (!safeCompare(workerSecret, request.headers['x-poc-worker-secret'])) {
+        return sendJson(response, 403, { ok: false, error: 'forbidden' });
+      }
+
+      if (activeJob || activeStandupJob) {
+        return sendJson(response, 409, {
+          ok: false,
+          error: 'worker_busy',
+          activeCorrelationId: activeJob?.correlation_id || activeStandupJob?.correlation_id || '',
+        });
+      }
+
+      const body = await readBody(request);
+      const job = normalizeStandupJob(JSON.parse(body || '{}'));
+      activeStandupJob = job;
+      try {
+        const result = await analyzeStandupTranscript(job);
+        return sendJson(response, 200, result);
+      } finally {
+        activeStandupJob = null;
+      }
     }
 
     if (request.method !== 'POST' || request.url !== '/poc/worker/start') {
@@ -41,8 +67,12 @@ const server = createServer(async (request, response) => {
       return sendJson(response, 403, { ok: false, error: 'forbidden' });
     }
 
-    if (activeJob) {
-      return sendJson(response, 409, { ok: false, error: 'worker_busy', activeCorrelationId: activeJob.correlation_id });
+    if (activeJob || activeStandupJob) {
+      return sendJson(response, 409, {
+        ok: false,
+        error: 'worker_busy',
+        activeCorrelationId: activeJob?.correlation_id || activeStandupJob?.correlation_id || '',
+      });
     }
 
     const body = await readBody(request);
@@ -357,6 +387,170 @@ async function sendCallback(job, state, status, errorMessage, log) {
     throw new Error(`n8n callback failed (${response.status}): ${text.slice(0, 500)}`);
   }
   log(`N8N_CALLBACK_SENT status=${status} response=${response.status}`);
+}
+
+async function analyzeStandupTranscript(job) {
+  const runDir = join(repoRoot, '.automation', 'standup-runs', safeSlug(job.correlation_id));
+  mkdirSync(runDir, { recursive: true });
+  const promptPath = join(runDir, 'standup-prompt.md');
+  const logPath = join(runDir, 'standup-worker.log');
+  const log = (message) => appendFileSync(logPath, `${new Date().toISOString()} ${redact(message)}\n`);
+
+  log(`TRANSCRIPT_PARSED correlation=${job.correlation_id} dryRun=${job.dry_run}`);
+  writeFileSync(promptPath, buildStandupPrompt(job), 'utf8');
+
+  const claude = await runCommand(
+    claudeCommand,
+    [
+      '-p',
+      '--max-turns',
+      env('STANDUP_CLAUDE_MAX_TURNS', '2'),
+      '--allowedTools',
+      'Read,LS',
+      '--output-format',
+      'json',
+      '--no-session-persistence',
+    ],
+    {
+      cwd: repoRoot,
+      stdin: readFileSync(promptPath, 'utf8'),
+      windowsCmd: process.platform === 'win32',
+      timeoutMs: Number(env('STANDUP_ANALYSIS_TIMEOUT_MS', '180000')),
+      stripClaudeTokenEnv: true,
+      log,
+    },
+  );
+
+  if (claude.code !== 0) {
+    throw new Error(`Standup Claude analysis failed (${claude.code}): ${summarizeOutput(claude)}`);
+  }
+
+  const text = extractClaudeResultText(claude);
+  const parsed = parseJsonObject(text);
+  const issues = validateStandupIssues(parsed.issues || []);
+  log(`ACTION_PLAN_CREATED issueCount=${issues.length}`);
+
+  return {
+    ok: true,
+    correlation_id: job.correlation_id,
+    dry_run: job.dry_run,
+    issues,
+  };
+}
+
+function normalizeStandupJob(input) {
+  const required = ['correlation_id', 'transcript'];
+  for (const key of required) {
+    if (!input[key]) throw new Error(`Missing ${key}`);
+  }
+  return {
+    correlation_id: String(input.correlation_id || ''),
+    dry_run: Boolean(input.dry_run),
+    transcript: String(input.transcript || '').slice(0, 20000),
+    slack_channel_id: String(input.slack_channel_id || ''),
+    slack_message_ts: String(input.slack_message_ts || ''),
+    slack_thread_ts: String(input.slack_thread_ts || ''),
+    requester_identity: String(input.requester_identity || ''),
+  };
+}
+
+function buildStandupPrompt(job) {
+  return [
+    'You analyze standup transcripts for Jira status reconciliation.',
+    '',
+    'Return strict JSON only. Do not include Markdown, commentary, code fences, or prose outside the JSON object.',
+    '',
+    'Schema:',
+    '{',
+    '  "issues": [',
+    '    {',
+    '      "issueKey": "SYSCO-6",',
+    '      "evidence": "short exact transcript evidence for this issue",',
+    '      "summary": "concise interpretation of the update",',
+    '      "desiredState": "in_progress | review | done | blocked | no_change | clarification",',
+    '      "addComment": true,',
+    '      "comment": "Standup update: concise ticket-specific update.",',
+    '      "confidence": "high | medium | low"',
+    '    }',
+    '  ]',
+    '}',
+    '',
+    'Rules:',
+    '- Include every SYSCO issue key mentioned in the transcript.',
+    '- Do not invent issue keys.',
+    '- Do not create Jira issues.',
+    '- "ready for review", "needs review", or "finished implementation" means desiredState "review", not "done".',
+    '- "done", "completed", "finished and accepted", or "close this" can mean desiredState "done" only when completion is explicit.',
+    '- "blocked", "waiting on", or "cannot continue until" means desiredState "blocked".',
+    '- "started", "working on", or "in progress" means desiredState "in_progress".',
+    '- "needs another day", "still working", "continuing", or "worked on yesterday" means desiredState "no_change" or "in_progress" only if active work is explicit.',
+    '- Ambiguous future or partial-completion language must not become "done". Use confidence "low" or "medium".',
+    '- Use confidence "high" only when the transcript clearly supports the desired state.',
+    '- Use confidence "medium" when a comment is useful but the transition is not certain.',
+    '- Use confidence "low" when the ticket needs clarification; set addComment false.',
+    '- Keep comments concise and specific to each ticket. Do not paste the whole transcript.',
+    '',
+    `Correlation: ${job.correlation_id}`,
+    `Dry run: ${job.dry_run}`,
+    '',
+    'Transcript:',
+    job.transcript,
+  ].join('\n');
+}
+
+function extractClaudeResultText(result) {
+  const stdout = String(result.stdout || '').trim();
+  try {
+    const parsed = JSON.parse(stdout);
+    if (typeof parsed.result === 'string') return parsed.result;
+    if (typeof parsed.message === 'string') return parsed.message;
+    return JSON.stringify(parsed);
+  } catch {
+    return stdout;
+  }
+}
+
+function parseJsonObject(text) {
+  const raw = String(text || '').trim();
+  const withoutFence = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  try {
+    return JSON.parse(withoutFence);
+  } catch {
+    const start = withoutFence.indexOf('{');
+    const end = withoutFence.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      return JSON.parse(withoutFence.slice(start, end + 1));
+    }
+    throw new Error(`Claude did not return valid JSON: ${withoutFence.slice(0, 500)}`);
+  }
+}
+
+function validateStandupIssues(issues) {
+  if (!Array.isArray(issues)) throw new Error('Claude JSON must contain issues array');
+  const desiredStates = new Set(['in_progress', 'review', 'done', 'blocked', 'no_change', 'clarification']);
+  const confidences = new Set(['high', 'medium', 'low']);
+  const normalized = [];
+  const seen = new Set();
+
+  for (const rawIssue of issues.slice(0, 50)) {
+    const issueKey = String(rawIssue.issueKey || '').toUpperCase().trim();
+    if (!/^SYSCO-\d+$/.test(issueKey) || seen.has(issueKey)) continue;
+    seen.add(issueKey);
+
+    const desiredState = String(rawIssue.desiredState || 'clarification').toLowerCase().replace(/[\s-]+/g, '_');
+    const confidence = String(rawIssue.confidence || 'low').toLowerCase();
+    normalized.push({
+      issueKey,
+      evidence: String(rawIssue.evidence || '').slice(0, 500),
+      summary: String(rawIssue.summary || '').slice(0, 500),
+      desiredState: desiredStates.has(desiredState) ? desiredState : 'clarification',
+      addComment: Boolean(rawIssue.addComment),
+      comment: String(rawIssue.comment || rawIssue.summary || '').slice(0, 800),
+      confidence: confidences.has(confidence) ? confidence : 'low',
+    });
+  }
+
+  return normalized;
 }
 
 async function githubApi(path, options = {}) {

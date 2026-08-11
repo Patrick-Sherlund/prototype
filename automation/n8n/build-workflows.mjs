@@ -7,12 +7,19 @@ const code = (name) => readFileSync(join(here, 'code', name), 'utf8');
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const codeFiles = [
   'slack-parse-and-verify.js',
+  'standup-dispatch-jira-workflow.js',
   'jira-validate-and-mark-active.js',
   'github-dispatch-claude-workflow.js',
   'slack-report-request-failure.js',
   'github-callback-verify.js',
   'jira-record-completion.js',
   'slack-reply-completion.js',
+  'standup-verify-request.js',
+  'standup-analyze-with-claude.js',
+  'standup-validate-output.js',
+  'standup-apply-jira-changes.js',
+  'standup-build-summary.js',
+  'standup-reply-slack.js',
 ];
 
 function webhookNode(id, name, path, position) {
@@ -87,14 +94,16 @@ const slackRequest = {
     webhookNode('slack-event-webhook', 'Slack Event Webhook', 'poc/slack/request', [0, 0]),
     codeNode('slack-parse-verify', 'Slack - Parse and Verify', code('slack-parse-and-verify.js'), [260, 0]),
     respondNode('respond-to-slack', 'Respond to Slack', [520, 0]),
-    codeNode('jira-validate-active', 'Jira - Validate and Mark Active', code('jira-validate-and-mark-active.js'), [780, 0]),
-    codeNode('local-worker-start-claude', 'Local Worker - Start Claude Implementation', code('github-dispatch-claude-workflow.js'), [1040, 0]),
-    codeNode('slack-report-request-failure', 'Slack - Report Request Failure', code('slack-report-request-failure.js'), [1300, 0]),
+    codeNode('standup-dispatch-jira', 'Standup - Dispatch Jira Workflow', code('standup-dispatch-jira-workflow.js'), [780, 0]),
+    codeNode('jira-validate-active', 'Jira - Validate and Mark Active', code('jira-validate-and-mark-active.js'), [1040, 0]),
+    codeNode('local-worker-start-claude', 'Local Worker - Start Claude Implementation', code('github-dispatch-claude-workflow.js'), [1300, 0]),
+    codeNode('slack-report-request-failure', 'Slack - Report Request Failure', code('slack-report-request-failure.js'), [1560, 0]),
   ],
   connections: connect([
     'Slack Event Webhook',
     'Slack - Parse and Verify',
     'Respond to Slack',
+    'Standup - Dispatch Jira Workflow',
     'Jira - Validate and Mark Active',
     'Local Worker - Start Claude Implementation',
     'Slack - Report Request Failure',
@@ -140,9 +149,45 @@ const githubCompletion = {
   },
 };
 
+const standupJira = {
+  id: 'pocStandupJira',
+  name: 'POC C - Standup Transcript to Jira Summary',
+  nodes: [
+    webhookNode('standup-receive-webhook', 'Receive Standup Request', 'poc/standup/jira', [0, 0]),
+    codeNode('standup-verify-request', 'Detect Standup Request', code('standup-verify-request.js'), [260, 0]),
+    respondNode('respond-to-standup-dispatch', 'Acknowledge Standup Dispatch', [520, 0]),
+    codeNode('standup-analyze-claude', 'Analyze Standup With Claude', code('standup-analyze-with-claude.js'), [780, 0]),
+    codeNode('standup-validate-output', 'Validate Claude Output', code('standup-validate-output.js'), [1040, 0]),
+    codeNode('standup-apply-jira', 'Apply Jira Changes', code('standup-apply-jira-changes.js'), [1300, 0]),
+    codeNode('standup-build-summary', 'Build Standup Summary', code('standup-build-summary.js'), [1560, 0]),
+    codeNode('standup-reply-slack', 'Reply to Slack', code('standup-reply-slack.js'), [1820, 0]),
+  ],
+  connections: connect([
+    'Receive Standup Request',
+    'Detect Standup Request',
+    'Acknowledge Standup Dispatch',
+    'Analyze Standup With Claude',
+    'Validate Claude Output',
+    'Apply Jira Changes',
+    'Build Standup Summary',
+    'Reply to Slack',
+  ]),
+  settings: {
+    executionOrder: 'v1',
+    saveDataSuccessExecution: 'all',
+    saveDataErrorExecution: 'all',
+  },
+  active: false,
+  versionId: 'standup-jira-workflow-v1',
+  meta: {
+    templateCredsSetupCompleted: true,
+  },
+};
+
 const outputs = [
   ['slack-request-workflow.json', slackRequest],
   ['github-completion-workflow.json', githubCompletion],
+  ['standup-jira-workflow.json', standupJira],
 ];
 
 if (process.argv.includes('--check')) {

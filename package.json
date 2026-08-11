@@ -12,6 +12,7 @@
     "worker:stop": "node automation/scripts/stop-local-worker.mjs",
     "build:workflows": "node automation/n8n/build-workflows.mjs",
     "validate:workflows": "node automation/n8n/build-workflows.mjs --check",
+    "test:standup": "node automation/tests/standup-synthetic.test.mjs",
     "validate:claude-oauth": "powershell -ExecutionPolicy Bypass -File automation/scripts/validate-claude-oauth.ps1",
     "create:jira-demo": "node automation/scripts/create-jira-demo-issue.mjs"
   },

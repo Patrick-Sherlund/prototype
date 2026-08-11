@@ -1,0 +1,217 @@
+{
+  "id": "pocStandupJira",
+  "name": "POC C - Standup Transcript to Jira Summary",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "poc/standup/jira",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "standup-receive-webhook",
+      "name": "Receive Standup Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "standup-receive-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst env = (name) => $env[name];\n\nfunction header(headers, name) {\n  const match = Object.entries(headers || {}).find(([key]) => key.toLowerCase() === name.toLowerCase());\n  return Array.isArray(match?.[1]) ? match[1][0] : match?.[1];\n}\n\nfunction safeCompare(a, b) {\n  const left = Buffer.from(String(a || ''));\n  const right = Buffer.from(String(b || ''));\n  return left.length === right.length && crypto.timingSafeEqual(left, right);\n}\n\nconst item = $input.first();\nconst expectedSecret = env('STANDUP_INTERNAL_SECRET') || env('LOCAL_WORKER_SECRET');\nconst providedSecret = header(item.json.headers, 'x-poc-standup-secret');\n\nif (!expectedSecret) {\n  throw new Error('STANDUP_RECEIVED failed: STANDUP_INTERNAL_SECRET or LOCAL_WORKER_SECRET is not configured');\n}\n\nif (!safeCompare(expectedSecret, providedSecret)) {\n  console.log(JSON.stringify({ stage: 'STANDUP_RECEIVED', authorized: false }));\n  return [{ json: { authorized: false, ackStatusCode: 403, ackText: 'forbidden' } }];\n}\n\nconst payload = item.json.body || {};\nconsole.log(\n  JSON.stringify({\n    stage: 'STANDUP_RECEIVED',\n    authorized: true,\n    correlationId: payload.correlation_id,\n    dryRun: Boolean(payload.dry_run),\n  }),\n);\n\nreturn [\n  {\n    json: {\n      authorized: true,\n      ackStatusCode: 202,\n      ackText: 'accepted',\n      correlationId: String(payload.correlation_id || ''),\n      dryRun: Boolean(payload.dry_run),\n      transcript: String(payload.transcript || ''),\n      slackChannelId: String(payload.slack_channel_id || ''),\n      slackMessageTs: String(payload.slack_message_ts || ''),\n      slackThreadTs: String(payload.slack_thread_ts || ''),\n      requesterIdentity: String(payload.requester_identity || ''),\n      slackEventId: String(payload.slack_event_id || ''),\n    },\n  },\n];\n"
+      },
+      "id": "standup-verify-request",
+      "name": "Detect Standup Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.ackText || \"ok\" }}",
+        "options": {
+          "responseCode": "={{ $json.ackStatusCode || 200 }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/plain; charset=utf-8"
+              }
+            ]
+          }
+        }
+      },
+      "id": "respond-to-standup-dispatch",
+      "name": "Acknowledge Standup Dispatch",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const env = (name) => $env[name];\nconst https = require('https');\nconst http = require('http');\n\nfunction requiredEnv(names) {\n  const missing = names.filter((name) => !env(name));\n  if (missing.length) throw new Error(`Missing environment variable(s): ${missing.join(', ')}`);\n}\n\nasync function httpRequest(url, options = {}) {\n  const method = options.method || 'GET';\n  const body = options.body || '';\n  const headers = { ...(options.headers || {}) };\n  if (body && !headers['Content-Length']) headers['Content-Length'] = Buffer.byteLength(body);\n  const client = url.startsWith('https:') ? https : http;\n\n  return await new Promise((resolve, reject) => {\n    const request = client.request(url, { method, headers }, (response) => {\n      const chunks = [];\n      response.on('data', (chunk) => chunks.push(Buffer.from(chunk)));\n      response.on('end', () => {\n        const status = response.statusCode || 0;\n        resolve({\n          status,\n          ok: status >= 200 && status < 300,\n          headers: response.headers,\n          bodyText: Buffer.concat(chunks).toString('utf8'),\n        });\n      });\n    });\n    request.on('error', reject);\n    request.setTimeout(Number(env('STANDUP_ANALYSIS_HTTP_TIMEOUT_MS') || 240000), () =>\n      request.destroy(new Error(`HTTP ${method} ${url} timed out`)),\n    );\n    if (body) request.write(body);\n    request.end();\n  });\n}\n\nconst input = $input.first().json;\nif (!input.authorized) return [{ json: input }];\n\ntry {\n  requiredEnv(['LOCAL_WORKER_URL', 'LOCAL_WORKER_SECRET']);\n  if (!input.transcript.trim()) throw new Error('Transcript is empty');\n\n  const workerUrl = `${env('LOCAL_WORKER_URL').replace(/\\/$/, '')}/poc/standup/analyze`;\n  const response = await httpRequest(workerUrl, {\n    method: 'POST',\n    headers: {\n      Accept: 'application/json',\n      'Content-Type': 'application/json',\n      'x-poc-worker-secret': env('LOCAL_WORKER_SECRET'),\n    },\n    body: JSON.stringify({\n      correlation_id: input.correlationId,\n      dry_run: input.dryRun,\n      transcript: input.transcript,\n      slack_channel_id: input.slackChannelId,\n      slack_message_ts: input.slackMessageTs,\n      slack_thread_ts: input.slackThreadTs,\n      requester_identity: input.requesterIdentity,\n    }),\n  });\n\n  if (!response.ok) {\n    throw new Error(`Local standup analyzer failed (${response.status}): ${response.bodyText.slice(0, 900)}`);\n  }\n\n  const analysis = response.bodyText ? JSON.parse(response.bodyText) : {};\n  console.log(\n    JSON.stringify({\n      stage: 'TRANSCRIPT_PARSED',\n      correlationId: input.correlationId,\n      issueCount: Array.isArray(analysis.issues) ? analysis.issues.length : 0,\n    }),\n  );\n\n  return [{ json: { ...input, analysis } }];\n} catch (error) {\n  return [\n    {\n      json: {\n        ...input,\n        standupFailed: true,\n        failureStage: 'TRANSCRIPT_PARSED',\n        errorMessage: String(error.message || error).slice(0, 1200),\n      },\n    },\n  ];\n}\n"
+      },
+      "id": "standup-analyze-claude",
+      "name": "Analyze Standup With Claude",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nif (!input.authorized || input.standupFailed) return [{ json: input }];\n\nfunction normalizeState(value) {\n  const state = String(value || 'clarification').toLowerCase().replace(/[\\s-]+/g, '_');\n  if (['in_progress', 'review', 'done', 'blocked', 'no_change', 'clarification'].includes(state)) return state;\n  return 'clarification';\n}\n\nfunction normalizeConfidence(value) {\n  const confidence = String(value || 'low').toLowerCase();\n  if (['high', 'medium', 'low'].includes(confidence)) return confidence;\n  return 'low';\n}\n\ntry {\n  const issues = input.analysis?.issues;\n  if (!Array.isArray(issues)) throw new Error('Claude analysis did not contain an issues array');\n\n  const seen = new Set();\n  const actionPlan = [];\n  for (const issue of issues.slice(0, 50)) {\n    const issueKey = String(issue.issueKey || '').toUpperCase().trim();\n    if (!/^SYSCO-\\d+$/.test(issueKey) || seen.has(issueKey)) continue;\n    seen.add(issueKey);\n\n    const confidence = normalizeConfidence(issue.confidence);\n    const desiredState = normalizeState(issue.desiredState);\n    actionPlan.push({\n      issueKey,\n      evidence: String(issue.evidence || '').slice(0, 500),\n      summary: String(issue.summary || '').slice(0, 500),\n      desiredState,\n      addComment: Boolean(issue.addComment) && confidence !== 'low',\n      comment: String(issue.comment || issue.summary || '').slice(0, 800),\n      confidence,\n    });\n  }\n\n  console.log(JSON.stringify({ stage: 'ACTION_PLAN_CREATED', correlationId: input.correlationId, issueCount: actionPlan.length }));\n  return [{ json: { ...input, actionPlan } }];\n} catch (error) {\n  return [\n    {\n      json: {\n        ...input,\n        standupFailed: true,\n        failureStage: 'ACTION_PLAN_CREATED',\n        errorMessage: String(error.message || error).slice(0, 1200),\n      },\n    },\n  ];\n}\n"
+      },
+      "id": "standup-validate-output",
+      "name": "Validate Claude Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const env = (name) => $env[name];\nconst https = require('https');\nconst http = require('http');\n\nfunction docParagraphs(lines) {\n  return {\n    type: 'doc',\n    version: 1,\n    content: lines.map((line) => ({\n      type: 'paragraph',\n      content: line ? [{ type: 'text', text: line }] : [],\n    })),\n  };\n}\n\nasync function httpRequest(url, options = {}) {\n  const method = options.method || 'GET';\n  const body = options.body || '';\n  const headers = { ...(options.headers || {}) };\n  if (body && !headers['Content-Length']) headers['Content-Length'] = Buffer.byteLength(body);\n  const client = url.startsWith('https:') ? https : http;\n\n  return await new Promise((resolve, reject) => {\n    const request = client.request(url, { method, headers }, (response) => {\n      const chunks = [];\n      response.on('data', (chunk) => chunks.push(Buffer.from(chunk)));\n      response.on('end', () => {\n        const status = response.statusCode || 0;\n        resolve({\n          status,\n          ok: status >= 200 && status < 300,\n          headers: response.headers,\n          bodyText: Buffer.concat(chunks).toString('utf8'),\n        });\n      });\n    });\n    request.on('error', reject);\n    request.setTimeout(30000, () => request.destroy(new Error(`HTTP ${method} ${url} timed out`)));\n    if (body) request.write(body);\n    request.end();\n  });\n}\n\nasync function jiraFetch(path, options = {}) {\n  const response = await httpRequest(`${env('JIRA_BASE_URL').replace(/\\/$/, '')}${path}`, {\n    ...options,\n    headers: {\n      Authorization: env('JIRA_AUTH_HEADER'),\n      Accept: 'application/json',\n      'Content-Type': 'application/json',\n      ...(options.headers || {}),\n    },\n  });\n  const text = response.bodyText;\n  let data = {};\n  if (text) {\n    try {\n      data = JSON.parse(text);\n    } catch {\n      data = { raw: text.slice(0, 600) };\n    }\n  }\n  if (!response.ok) {\n    const error = new Error(`Jira ${options.method || 'GET'} ${path} failed (${response.status}): ${text.slice(0, 700)}`);\n    error.status = response.status;\n    throw error;\n  }\n  return data;\n}\n\nfunction transitionPatterns(desiredState) {\n  if (desiredState === 'in_progress') return [/in progress/i, /start/i, /doing/i, /active/i, /selected for development/i];\n  if (desiredState === 'review') return [/review/i, /ready/i, /qa/i, /validate/i];\n  if (desiredState === 'done') return [/done/i, /closed/i, /complete/i, /completed/i, /resolved/i];\n  if (desiredState === 'blocked') return [/blocked/i, /impediment/i, /on hold/i, /waiting/i];\n  return [];\n}\n\nfunction statusMatches(status, desiredState) {\n  const text = String(status || '');\n  return transitionPatterns(desiredState).some((pattern) => pattern.test(text));\n}\n\nfunction chooseTransition(transitions, desiredState) {\n  const patterns = transitionPatterns(desiredState);\n  if (!patterns.length) return null;\n  return (transitions || []).find((transition) => {\n    const label = `${transition.name || ''} ${transition.to?.name || ''}`;\n    return patterns.some((pattern) => pattern.test(label));\n  });\n}\n\nfunction commentLines(item, targetLabel) {\n  const lines = [\n    'Standup update:',\n    item.comment || item.summary || item.evidence || 'Ticket discussed in standup.',\n    '',\n    `Source: automated standup reconciliation`,\n    `Correlation: ${item.correlationId}`,\n  ];\n  if (targetLabel) lines.splice(2, 0, `Status intent: ${targetLabel}`);\n  if (item.evidence) lines.splice(2, 0, `Evidence: ${item.evidence}`);\n  return lines;\n}\n\nconst input = $input.first().json;\nif (!input.authorized) return [{ json: input }];\nif (input.standupFailed) return [{ json: input }];\n\ntry {\n  if (!env('JIRA_BASE_URL') || !env('JIRA_AUTH_HEADER')) throw new Error('Missing JIRA_BASE_URL or JIRA_AUTH_HEADER');\n\n  const actionPlan = input.actionPlan || [];\n  const results = [];\n  console.log(JSON.stringify({ stage: 'JIRA_ISSUES_RESOLVED', correlationId: input.correlationId, issueCount: actionPlan.length }));\n  console.log(JSON.stringify({ stage: 'JIRA_UPDATES_STARTED', correlationId: input.correlationId, dryRun: input.dryRun }));\n\n  for (const item of actionPlan) {\n    const result = {\n      issueKey: item.issueKey,\n      issueUrl: `${env('JIRA_BASE_URL').replace(/\\/$/, '')}/browse/${item.issueKey}`,\n      currentStatus: '',\n      proposedStatus: '',\n      actualStatus: '',\n      action: 'none',\n      result: 'skipped',\n      reason: '',\n      commentAdded: false,\n      transitionApplied: false,\n      confidence: item.confidence,\n      desiredState: item.desiredState,\n      evidence: item.evidence,\n      summary: item.summary,\n    };\n\n    try {\n      const issue = await jiraFetch(`/rest/api/3/issue/${encodeURIComponent(item.issueKey)}?fields=summary,status`);\n      result.currentStatus = issue.fields?.status?.name || '';\n      result.actualStatus = result.currentStatus;\n\n      if (item.confidence === 'low') {\n        result.action = 'clarification';\n        result.result = 'skipped';\n        result.reason = item.summary || 'Low-confidence interpretation; needs clarification.';\n        results.push(result);\n        continue;\n      }\n\n      const transitions = await jiraFetch(`/rest/api/3/issue/${encodeURIComponent(item.issueKey)}/transitions`);\n      const transition = item.confidence === 'high' ? chooseTransition(transitions.transitions, item.desiredState) : null;\n      const canTransition = Boolean(transition?.id) && !['no_change', 'clarification'].includes(item.desiredState);\n      const alreadyInTarget = statusMatches(result.currentStatus, item.desiredState);\n      result.proposedStatus = canTransition ? transition.to?.name || transition.name || '' : alreadyInTarget ? result.currentStatus : '';\n\n      if (input.dryRun) {\n        result.action = canTransition && !alreadyInTarget ? 'would_transition' : item.addComment ? 'would_comment' : 'no_status_change';\n        result.result = 'dry_run';\n        result.reason =\n          item.confidence !== 'high' && !['no_change', 'clarification'].includes(item.desiredState)\n            ? 'Medium confidence: comment only; no status transition proposed.'\n            : item.summary || item.evidence || 'Proposed from standup transcript.';\n        results.push(result);\n        continue;\n      }\n\n      if (item.addComment || item.desiredState === 'blocked' || item.desiredState === 'no_change') {\n        await jiraFetch(`/rest/api/3/issue/${encodeURIComponent(item.issueKey)}/comment`, {\n          method: 'POST',\n          body: JSON.stringify({\n            body: docParagraphs(commentLines({ ...item, correlationId: input.correlationId }, result.proposedStatus)),\n          }),\n        });\n        result.commentAdded = true;\n      }\n\n      if (canTransition && !alreadyInTarget) {\n        await jiraFetch(`/rest/api/3/issue/${encodeURIComponent(item.issueKey)}/transitions`, {\n          method: 'POST',\n          body: JSON.stringify({ transition: { id: transition.id } }),\n        });\n        result.transitionApplied = true;\n        result.action = 'transitioned';\n        result.actualStatus = transition.to?.name || result.proposedStatus || result.currentStatus;\n      } else if (alreadyInTarget) {\n        result.action = result.commentAdded ? 'commented' : 'no_status_change';\n        result.reason = 'Issue was already in the target status.';\n      } else if (item.confidence !== 'high' && !['no_change', 'clarification'].includes(item.desiredState)) {\n        result.action = result.commentAdded ? 'commented' : 'no_status_change';\n        result.reason = 'Medium confidence: added comment but skipped status transition.';\n      } else if (!transition && !['no_change', 'clarification'].includes(item.desiredState)) {\n        result.action = result.commentAdded ? 'commented' : 'no_matching_transition';\n        result.reason = `No available Jira transition matched semantic state ${item.desiredState}.`;\n      } else {\n        result.action = result.commentAdded ? 'commented' : 'no_status_change';\n        result.reason = item.summary || 'No status change requested.';\n      }\n\n      result.result = result.transitionApplied || result.commentAdded ? 'updated' : 'skipped';\n      results.push(result);\n    } catch (error) {\n      result.result = error.status === 404 ? 'not_found' : 'failed';\n      result.reason = error.status === 404 ? 'Issue not found in Jira; no changes made.' : String(error.message || error).slice(0, 700);\n      results.push(result);\n    }\n  }\n\n  console.log(JSON.stringify({ stage: 'JIRA_UPDATES_COMPLETED', correlationId: input.correlationId, results }));\n  return [{ json: { ...input, jiraResults: results } }];\n} catch (error) {\n  return [\n    {\n      json: {\n        ...input,\n        standupFailed: true,\n        failureStage: 'JIRA_UPDATES_STARTED',\n        errorMessage: String(error.message || error).slice(0, 1200),\n      },\n    },\n  ];\n}\n"
+      },
+      "id": "standup-apply-jira",
+      "name": "Apply Jira Changes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nif (!input.authorized) return [{ json: input }];\n\nfunction labelForResult(result) {\n  if (result.result === 'not_found') return 'Not found';\n  if (result.result === 'failed') return 'Failed';\n  if (result.action === 'transitioned') return result.actualStatus || result.proposedStatus || 'Updated';\n  if (result.action === 'would_transition') return `Proposed: ${result.proposedStatus || result.desiredState}`;\n  if (result.action === 'would_comment') return 'Proposed comment';\n  if (result.action === 'commented') return 'Comment added';\n  if (result.action === 'no_matching_transition') return 'No matching transition';\n  if (result.action === 'clarification') return 'Needs clarification';\n  if (result.action === 'no_status_change') return 'No status change';\n  return result.result || 'No change';\n}\n\nfunction detailForResult(result) {\n  if (result.result === 'dry_run') {\n    const current = result.currentStatus ? `Current: ${result.currentStatus}` : 'Current: unknown';\n    const proposed = result.proposedStatus ? `Proposed: ${result.proposedStatus}` : 'Proposed: no status change';\n    return `${current}; ${proposed}`;\n  }\n  if (result.result === 'not_found') return 'No changes made.';\n  if (result.result === 'failed') return result.reason || 'No changes made.';\n  if (result.transitionApplied && result.commentAdded) return 'Transitioned and added standup update.';\n  if (result.transitionApplied) return 'Transitioned from standup update.';\n  if (result.commentAdded) return result.reason || 'Added standup update.';\n  return result.reason || result.summary || 'No changes made.';\n}\n\nconst results = input.jiraResults || [];\nlet summaryText;\n\nif (input.standupFailed) {\n  summaryText = `Standup Jira automation failed\\n\\nStage: ${input.failureStage || 'unknown'}\\nError: ${input.errorMessage || 'Unknown error'}\\n\\nCorrelation: ${input.correlationId}`;\n} else if (!results.length) {\n  summaryText = `${input.dryRun ? 'Standup dry run complete' : 'Standup Jira update complete'}\\n\\nNo Jira issue keys were found in the transcript. No Jira changes were made.\\n\\nCorrelation: ${input.correlationId}`;\n} else {\n  const lines = [input.dryRun ? 'Standup dry run complete' : 'Standup Jira update complete', ''];\n  for (const result of results) {\n    const link = result.issueUrl && result.result !== 'not_found' ? ` (${result.issueUrl})` : '';\n    lines.push(`${result.issueKey}  ${labelForResult(result)}${link}`);\n    lines.push(detailForResult(result));\n    if (result.evidence) lines.push(`Reason: \"${result.evidence}\"`);\n    lines.push('');\n  }\n\n  const updated = results.filter((result) => result.result === 'updated').length;\n  const skipped = results.filter((result) => result.result !== 'updated').length;\n  if (input.dryRun) {\n    lines.push('No Jira changes were made.');\n    lines.push(`${results.length} tickets analyzed`);\n  } else {\n    lines.push(`${updated} tickets updated`);\n    lines.push(`${skipped} tickets skipped`);\n  }\n  lines.push('');\n  lines.push(`Correlation: ${input.correlationId}`);\n  summaryText = lines.join('\\n').slice(0, 3500);\n}\n\nreturn [{ json: { ...input, summaryText } }];\n"
+      },
+      "id": "standup-build-summary",
+      "name": "Build Standup Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const env = (name) => $env[name];\nconst https = require('https');\nconst http = require('http');\n\nasync function httpRequest(url, options = {}) {\n  const method = options.method || 'GET';\n  const body = options.body || '';\n  const headers = { ...(options.headers || {}) };\n  if (body && !headers['Content-Length']) headers['Content-Length'] = Buffer.byteLength(body);\n  const client = url.startsWith('https:') ? https : http;\n\n  return await new Promise((resolve, reject) => {\n    const request = client.request(url, { method, headers }, (response) => {\n      const chunks = [];\n      response.on('data', (chunk) => chunks.push(Buffer.from(chunk)));\n      response.on('end', () => {\n        const status = response.statusCode || 0;\n        resolve({\n          status,\n          ok: status >= 200 && status < 300,\n          headers: response.headers,\n          bodyText: Buffer.concat(chunks).toString('utf8'),\n        });\n      });\n    });\n    request.on('error', reject);\n    request.setTimeout(30000, () => request.destroy(new Error(`HTTP ${method} ${url} timed out`)));\n    if (body) request.write(body);\n    request.end();\n  });\n}\n\nasync function postSlack(channel, threadTs, text) {\n  const response = await httpRequest('https://slack.com/api/chat.postMessage', {\n    method: 'POST',\n    headers: {\n      Authorization: `Bearer ${env('SLACK_BOT_TOKEN')}`,\n      'Content-Type': 'application/json; charset=utf-8',\n    },\n    body: JSON.stringify({\n      channel,\n      thread_ts: threadTs,\n      unfurl_links: false,\n      unfurl_media: false,\n      text,\n    }),\n  });\n  const data = response.bodyText ? JSON.parse(response.bodyText) : {};\n  if (!data.ok) throw new Error(`Slack chat.postMessage failed: ${data.error || 'unknown_error'}`);\n  return data;\n}\n\nconst input = $input.first().json;\nif (!input.authorized) return [{ json: input }];\nif (!env('SLACK_BOT_TOKEN')) throw new Error('SLACK_SUMMARY_SENT failed: SLACK_BOT_TOKEN is not configured');\n\nawait postSlack(input.slackChannelId, input.slackThreadTs || input.slackMessageTs, input.summaryText || 'Standup Jira update completed.');\nconsole.log(JSON.stringify({ stage: 'SLACK_SUMMARY_SENT', correlationId: input.correlationId }));\n\nreturn [{ json: { ...input, slackSummarySent: true } }];\n"
+      },
+      "id": "standup-reply-slack",
+      "name": "Reply to Slack",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1820,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Receive Standup Request": {
+      "main": [
+        [
+          {
+            "node": "Detect Standup Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect Standup Request": {
+      "main": [
+        [
+          {
+            "node": "Acknowledge Standup Dispatch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Acknowledge Standup Dispatch": {
+      "main": [
+        [
+          {
+            "node": "Analyze Standup With Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Standup With Claude": {
+      "main": [
+        [
+          {
+            "node": "Validate Claude Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Claude Output": {
+      "main": [
+        [
+          {
+            "node": "Apply Jira Changes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply Jira Changes": {
+      "main": [
+        [
+          {
+            "node": "Build Standup Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Standup Summary": {
+      "main": [
+        [
+          {
+            "node": "Reply to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all"
+  },
+  "active": false,
+  "versionId": "standup-jira-workflow-v1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}
