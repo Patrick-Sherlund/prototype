@@ -31,5 +31,14 @@ services:
       retries: 20
       start_period: 30s
 
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --url http://n8n:5678
+    depends_on:
+      n8n:
+        condition: service_healthy
+
 volumes:
   n8n_data:

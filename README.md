@@ -33,6 +33,13 @@ Health:
 Invoke-WebRequest http://localhost:5678/healthz
 ```
 
+Start a free HTTPS tunnel for Slack/GitHub callbacks:
+
+```powershell
+docker compose --profile tunnel up -d cloudflared
+docker compose logs -f cloudflared
+```
+
 Stop:
 
 ```powershell

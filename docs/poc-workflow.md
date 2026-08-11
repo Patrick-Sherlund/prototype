@@ -131,13 +131,26 @@ Slack must reach local n8n. Use a free tunnel and put its HTTPS origin in `.env`
 Preferred:
 
 ```powershell
-cloudflared tunnel --url http://localhost:5678
+docker compose --profile tunnel up -d cloudflared
+docker compose logs -f cloudflared
 ```
 
 Use the printed `https://...trycloudflare.com` value as:
 
 ```text
 N8N_WEBHOOK_URL=https://...trycloudflare.com
+```
+
+Then recreate n8n so workflow callbacks use the current public URL:
+
+```powershell
+docker compose up -d --force-recreate n8n
+```
+
+Stop the tunnel:
+
+```powershell
+docker compose stop cloudflared
 ```
 
 Slack request URL:
