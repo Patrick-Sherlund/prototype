@@ -18,6 +18,7 @@ const githubOwner = requiredEnv('GITHUB_OWNER');
 const githubRepo = requiredEnv('GITHUB_REPO');
 const githubToken = requiredEnv('GITHUB_DISPATCH_TOKEN');
 const claudeCommand = resolveClaudeCommand();
+const npmCommand = resolveNpmCommand();
 const claudeMaxTurns = env('CLAUDE_MAX_TURNS', '24');
 
 let activeJob = null;
@@ -128,7 +129,12 @@ async function runJob(job) {
     await ensurePrototypeChanged(log);
 
     state.stage = 'BUILD_PASSED';
-    const build = await runCommand('npm', ['run', 'build'], { cwd: repoRoot, timeoutMs: 2 * 60 * 1000, log });
+    const build = await runCommand(npmCommand, ['run', 'build'], {
+      cwd: repoRoot,
+      shell: process.platform === 'win32',
+      timeoutMs: 2 * 60 * 1000,
+      log,
+    });
     state.buildResult = build.code === 0 ? 'success' : 'failed';
     if (build.code !== 0) {
       throw new Error(`Production build failed (${build.code}): ${summarizeOutput(build)}`);
@@ -587,6 +593,20 @@ function resolveClaudeCommand() {
     }
   }
   return 'claude';
+}
+
+function resolveNpmCommand() {
+  if (env('NPM_COMMAND')) return env('NPM_COMMAND');
+  if (process.platform === 'win32') {
+    const candidates = [
+      join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs', 'npm.cmd'),
+      'npm.cmd',
+    ];
+    for (const candidate of candidates) {
+      if (candidate === 'npm.cmd' || existsSync(candidate)) return candidate;
+    }
+  }
+  return 'npm';
 }
 
 function safeCompare(expected, provided) {
