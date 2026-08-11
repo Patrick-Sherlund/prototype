@@ -460,7 +460,7 @@ function wrapWindowsCommand(command, args, options) {
   if (process.platform === 'win32' && options.windowsCmd) {
     return {
       command: 'cmd.exe',
-      args: ['/d', '/s', '/c', [quoteCmd(command), ...args.map(quoteCmd)].join(' ')],
+      args: ['/d', '/s', '/c', ['call', quoteCmd(command), ...args.map(quoteCmd)].join(' ')],
     };
   }
   return { command, args };
