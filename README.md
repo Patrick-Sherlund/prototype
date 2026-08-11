@@ -14,6 +14,8 @@ npm run dev
 npm run build
 npm run preview
 npm run worker
+npm run worker:start
+npm run worker:stop
 ```
 
 Local preview defaults to `http://127.0.0.1:5173/`.
@@ -26,7 +28,7 @@ Copy-Item .env.example .env
 npm run build:workflows
 docker compose up -d
 .\automation\scripts\import-n8n-workflows.ps1
-npm run worker
+npm run worker:start
 ```
 
 Health:

@@ -173,13 +173,19 @@ The GitHub Actions OAuth-token path is not used because `claude setup-token` pro
 Start the worker from the repository root:
 
 ```powershell
-npm run worker
+npm run worker:start
 ```
 
 Health check:
 
 ```powershell
 Invoke-WebRequest http://127.0.0.1:8787/healthz
+```
+
+Stop the worker:
+
+```powershell
+npm run worker:stop
 ```
 
 n8n reaches the worker from Docker through:
@@ -294,7 +300,7 @@ Do not use `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` for this POC path.
 2. Update `.env` `N8N_WEBHOOK_URL` if the tunnel URL changed.
 3. Start n8n with `docker compose up -d`.
 4. Import and activate workflows.
-5. Start the local worker with `npm run worker`.
+5. Start the local worker with `npm run worker:start`.
 6. Confirm the Slack app request URL is verified.
 7. Use existing Jira issue `SYSCO-6` or create a Jira demo issue with `npm run create:jira-demo`.
 8. Post in Slack channel `C0BP62TK3PD`:
