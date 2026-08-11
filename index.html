@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Foodservice ordering prototype for catalog browsing, order guides, payments, and delivery management."
+    />
+    <title>Foodservice Ordering Prototype</title>
+    <link rel="stylesheet" href="./src/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Primary navigation">
+        <div class="brand">
+          <span class="brand-mark">F</span>
+          <span>
+            <strong>FoodPro</strong>
+            <small>Shop</small>
+          </span>
+        </div>
+
+        <nav class="nav-list" id="nav-list"></nav>
+
+        <div class="delivery-card">
+          <span class="nav-icon">D</span>
+          <div>
+            <strong>Next Delivery</strong>
+            <span>Tomorrow, 5:00-7:00 AM</span>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main-panel">
+        <header class="topbar">
+          <div class="mobile-brand">
+            <span class="brand-mark">F</span>
+            <strong>FoodPro Shop</strong>
+          </div>
+          <label class="search-box">
+            <span class="action-icon">Search</span>
+            <input id="catalog-search" aria-label="Search product catalog" placeholder="Search Product Catalog" />
+          </label>
+          <div class="topbar-actions">
+            <button class="icon-button" aria-label="Notifications">N</button>
+            <button class="account-button">
+              <span class="action-icon">Acct</span>
+              Harbor Grill
+              <span aria-hidden="true">v</span>
+            </button>
+          </div>
+        </header>
+
+        <section class="hero-band">
+          <div>
+            <p class="eyebrow">Order guide</p>
+            <h1>Keep your kitchen stocked for the weekend rush.</h1>
+            <p>
+              Reorder key items, manage delivery windows, and keep payment cards ready from one
+              operating dashboard.
+            </p>
+            <div class="hero-actions">
+              <button class="primary-button">
+                <span class="action-icon">Cart</span>
+                Review Cart
+              </button>
+              <button class="secondary-button">
+                <span class="action-icon">Hist</span>
+                View Order History
+              </button>
+            </div>
+          </div>
+          <div class="hero-image" aria-hidden="true"></div>
+        </section>
+
+        <section class="status-grid" aria-label="Account snapshot">
+          <article class="metric-card">
+            <span class="status-icon">PK</span>
+            <div><span>Open Order</span><strong>7 cases</strong><small>Cutoff 3:00 PM</small></div>
+          </article>
+          <article class="metric-card">
+            <span class="status-icon">DL</span>
+            <div><span>Delivery</span><strong>Tue 5:00 AM</strong><small>Route 204</small></div>
+          </article>
+          <article class="metric-card">
+            <span class="status-icon">CC</span>
+            <div><span>Card Status</span><strong>3 active</strong><small>Primary ending 4821</small></div>
+          </article>
+          <article class="metric-card">
+            <span class="status-icon">CR</span>
+            <div><span>Credit Available</span><strong>$8,420</strong><small>Terms current</small></div>
+          </article>
+        </section>
+
+        <div class="content-grid">
+          <section class="catalog-panel">
+            <div class="section-header">
+              <div>
+                <p class="eyebrow">Catalog</p>
+                <h2>Popular items for Harbor Grill</h2>
+              </div>
+              <button class="filter-button"><span class="action-icon">Filter</span> Filters</button>
+            </div>
+
+            <div class="catalog-layout">
+              <aside class="filters" aria-label="Catalog filters">
+                <div class="filter-group">
+                  <span class="filter-title">Category</span>
+                  <div id="filter-list"></div>
+                </div>
+                <div class="filter-group">
+                  <span class="filter-title">Quick Lists</span>
+                  <label class="checkbox-line"><input type="checkbox" checked /> Previously Purchased</label>
+                  <label class="checkbox-line"><input type="checkbox" /> Sustainable</label>
+                  <label class="checkbox-line"><input type="checkbox" /> Local Produce</label>
+                </div>
+              </aside>
+
+              <div class="product-grid" id="product-grid"></div>
+            </div>
+          </section>
+
+          <aside class="right-rail">
+            <section class="cart-panel">
+              <div class="section-header compact">
+                <div>
+                  <p class="eyebrow">My Basket</p>
+                  <h2 id="cart-count">0 items</h2>
+                </div>
+                <span class="status-icon">CT</span>
+              </div>
+              <div class="cart-lines" id="cart-lines"></div>
+              <div class="cart-total">
+                <span>Estimated total</span>
+                <strong id="cart-total">$0.00</strong>
+              </div>
+              <button class="primary-button full">Schedule Order</button>
+            </section>
+
+            <section class="cards-panel">
+              <div class="section-header compact">
+                <div>
+                  <p class="eyebrow">Card Management</p>
+                  <h2>Payment cards</h2>
+                </div>
+                <span class="status-icon">CC</span>
+              </div>
+              <div class="payment-card">
+                <div><span>Operating Card</span><strong>**** 4821</strong></div>
+                <em>Primary</em>
+              </div>
+              <div class="payment-card">
+                <div><span>Catering Events</span><strong>**** 1197</strong></div>
+                <em>Backup</em>
+              </div>
+              <button class="secondary-button full"><span class="action-icon">+</span> Add Card</button>
+            </section>
+
+            <section class="delivery-panel">
+              <div class="section-header compact">
+                <div>
+                  <p class="eyebrow">Delivery</p>
+                  <h2>Austin DC</h2>
+                </div>
+                <span class="status-icon">MP</span>
+              </div>
+              <div class="route-card">
+                <span>Route 204</span>
+                <strong>Tue, Aug 18 - 5:00-7:00 AM</strong>
+                <p>Harbor Grill - Loading dock B</p>
+              </div>
+            </section>
+          </aside>
+        </div>
+      </main>
+    </div>
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>
