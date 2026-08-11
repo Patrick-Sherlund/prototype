@@ -88,7 +88,7 @@ const slackRequest = {
     codeNode('slack-parse-verify', 'Slack - Parse and Verify', code('slack-parse-and-verify.js'), [260, 0]),
     respondNode('respond-to-slack', 'Respond to Slack', [520, 0]),
     codeNode('jira-validate-active', 'Jira - Validate and Mark Active', code('jira-validate-and-mark-active.js'), [780, 0]),
-    codeNode('github-dispatch-claude', 'GitHub - Dispatch Claude Workflow', code('github-dispatch-claude-workflow.js'), [1040, 0]),
+    codeNode('local-worker-start-claude', 'Local Worker - Start Claude Implementation', code('github-dispatch-claude-workflow.js'), [1040, 0]),
     codeNode('slack-report-request-failure', 'Slack - Report Request Failure', code('slack-report-request-failure.js'), [1300, 0]),
   ],
   connections: connect([
@@ -96,7 +96,7 @@ const slackRequest = {
     'Slack - Parse and Verify',
     'Respond to Slack',
     'Jira - Validate and Mark Active',
-    'GitHub - Dispatch Claude Workflow',
+    'Local Worker - Start Claude Implementation',
     'Slack - Report Request Failure',
   ]),
   settings: {

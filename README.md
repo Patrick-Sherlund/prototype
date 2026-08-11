@@ -3,7 +3,7 @@
 This repo contains a small Sysco-themed foodservice ordering prototype and the automation scaffolding for:
 
 ```text
-Slack -> n8n -> Jira -> GitHub Actions -> Claude Code -> preview -> Jira -> Slack
+Slack -> n8n -> Jira -> local Claude Code worker -> GitHub branch/PR/preview -> Jira -> Slack
 ```
 
 ## Prototype
@@ -13,6 +13,7 @@ npm ci
 npm run dev
 npm run build
 npm run preview
+npm run worker
 ```
 
 Local preview defaults to `http://127.0.0.1:5173/`.
@@ -25,6 +26,7 @@ Copy-Item .env.example .env
 npm run build:workflows
 docker compose up -d
 .\automation\scripts\import-n8n-workflows.ps1
+npm run worker
 ```
 
 Health:

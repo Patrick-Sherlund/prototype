@@ -68,61 +68,56 @@ const input = $input.first().json;
 if (!input.shouldProcess || input.requestFailed) return [{ json: input }];
 
 try {
-  requiredEnv(['GITHUB_OWNER', 'GITHUB_REPO', 'GITHUB_WORKFLOW_FILE', 'GITHUB_DISPATCH_TOKEN', 'N8N_WEBHOOK_URL']);
+  requiredEnv(['LOCAL_WORKER_URL', 'LOCAL_WORKER_SECRET', 'N8N_WEBHOOK_URL']);
 
   const callbackBase = env('N8N_WEBHOOK_URL').replace(/\/$/, '');
   const callbackUrl = `${callbackBase}/webhook/poc/github/completion`;
-  const workflowUrl = `https://github.com/${env('GITHUB_OWNER')}/${env('GITHUB_REPO')}/actions/workflows/${env('GITHUB_WORKFLOW_FILE')}`;
-  const apiUrl = `https://api.github.com/repos/${env('GITHUB_OWNER')}/${env('GITHUB_REPO')}/actions/workflows/${env('GITHUB_WORKFLOW_FILE')}/dispatches`;
+  const workerUrl = `${env('LOCAL_WORKER_URL').replace(/\/$/, '')}/poc/worker/start`;
 
-  const response = await httpRequest(apiUrl, {
+  const response = await httpRequest(workerUrl, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${env('GITHUB_DISPATCH_TOKEN')}`,
-      Accept: 'application/vnd.github+json',
+      Accept: 'application/json',
       'Content-Type': 'application/json',
-      'X-GitHub-Api-Version': '2022-11-28',
+      'x-poc-worker-secret': env('LOCAL_WORKER_SECRET'),
     },
     body: JSON.stringify({
-      ref: 'main',
-      inputs: {
-        jira_issue_key: input.jiraIssueKey,
-        jira_summary: truncate(input.jiraSummary, 900),
-        jira_description: truncate(input.jiraDescriptionText, 6000),
-        requested_change: truncate(input.requestedChange, 6000),
-        slack_channel_id: input.slackChannelId,
-        slack_message_ts: input.slackMessageTs,
-        slack_thread_ts: input.slackThreadTs,
-        requester_identity: input.requesterIdentity || '',
-        correlation_id: input.correlationId,
-        n8n_callback_url: callbackUrl,
-      },
+      jira_issue_key: input.jiraIssueKey,
+      jira_summary: truncate(input.jiraSummary, 900),
+      jira_description: truncate(input.jiraDescriptionText, 6000),
+      requested_change: truncate(input.requestedChange, 6000),
+      slack_channel_id: input.slackChannelId,
+      slack_message_ts: input.slackMessageTs,
+      slack_thread_ts: input.slackThreadTs,
+      requester_identity: input.requesterIdentity || '',
+      correlation_id: input.correlationId,
+      n8n_callback_url: callbackUrl,
     }),
   });
 
   const responseText = response.bodyText;
-  if (response.status !== 204) {
-    throw new Error(`GitHub workflow_dispatch failed (${response.status}): ${responseText.slice(0, 600)}`);
+  if (response.status !== 202) {
+    throw new Error(`Local Claude worker start failed (${response.status}): ${responseText.slice(0, 600)}`);
   }
 
   await jiraComment(input.jiraIssueKey, [
-    'GITHUB_DISPATCHED Claude prototype implementation workflow.',
+    'LOCAL_WORKER_STARTED Claude prototype implementation worker.',
     `Correlation ID: ${input.correlationId}`,
-    `Workflow: ${workflowUrl}`,
-    'The GitHub Action will callback to n8n with PR, preview, commit, and build details.',
+    `Worker URL: ${env('LOCAL_WORKER_URL')}`,
+    'The local worker will callback to n8n with PR, preview, commit, and build details.',
   ]);
 
-  console.log(JSON.stringify({ stage: 'GITHUB_DISPATCHED', correlationId: input.correlationId, workflowUrl }));
+  console.log(JSON.stringify({ stage: 'LOCAL_WORKER_STARTED', correlationId: input.correlationId }));
 
-  return [{ json: { ...input, githubDispatched: true, githubWorkflowUrl: workflowUrl } }];
+  return [{ json: { ...input, localWorkerStarted: true } }];
 } catch (error) {
   const errorMessage = String(error.message || error).slice(0, 900);
   if (input.jiraIssueKey) {
     await jiraComment(input.jiraIssueKey, [
-      'GITHUB_DISPATCHED failed before Claude could start.',
+      'LOCAL_WORKER_STARTED failed before Claude could start.',
       `Correlation ID: ${input.correlationId}`,
       `Error: ${errorMessage}`,
     ]).catch(() => {});
   }
-  return [{ json: { ...input, requestFailed: true, failureStage: 'GITHUB_DISPATCHED', errorMessage } }];
+  return [{ json: { ...input, requestFailed: true, failureStage: 'LOCAL_WORKER_STARTED', errorMessage } }];
 }

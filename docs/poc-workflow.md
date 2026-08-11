@@ -12,16 +12,16 @@ Local n8n Community Edition
   |  - verify Slack signature
   |  - parse SYSCO issue key and request
   |  - validate/update Jira
-  |  - dispatch GitHub Actions
+  |  - start local Claude worker
   |
   v
 Jira Cloud SYSCO project <-----------------------------+
   |                                                    |
   v                                                    |
-GitHub Actions workflow_dispatch                      |
+Local Claude Code worker on Windows host              |
   |                                                    |
   v                                                    |
-Claude Code GitHub Action                             |
+Claude Code using local claude.ai Pro session          |
   |                                                    |
   | prototype/SYSCO-123 branch, commit, PR             |
   v                                                    |
@@ -41,7 +41,7 @@ Slack original thread
 - GitHub repository: `Patrick-Sherlund/prototype`
 - Main branch: `main`
 - Automated implementation branches: `prototype/<SYSCO-issue-key>`
-- Prototype preview path: `https://patrick-sherlund.github.io/prototype/previews/<SYSCO-issue-key>/<github-run-id>/`
+- Prototype preview path: `https://patrick-sherlund.github.io/prototype/previews/<SYSCO-issue-key>/<correlation-id>/`
 - Latest issue preview alias: `https://patrick-sherlund.github.io/prototype/previews/<SYSCO-issue-key>/latest/`
 
 ## Local Prototype
@@ -53,7 +53,7 @@ npm run build
 npm run preview
 ```
 
-The app is intentionally small and dependency-free because the local Windows sandbox blocked Vite/esbuild native process execution. The npm interface remains the same for GitHub Actions and Claude Code.
+The app is intentionally small and dependency-free because the local Windows sandbox blocked Vite/esbuild native process execution. The npm interface remains the same for local Claude Code automation.
 
 ## Required Secrets
 
@@ -66,9 +66,10 @@ Put local n8n secrets in `.env`, copied from `.env.example`. Do not commit `.env
 | `SLACK_SIGNING_SECRET` | `.env` | Yes | Verify Slack Events API signatures |
 | `SLACK_BOT_TOKEN` | `.env` | Yes | Reply to Slack threads |
 | `JIRA_AUTH_HEADER` | `.env` | Yes | Jira Basic auth header for REST API |
-| `GITHUB_DISPATCH_TOKEN` | `.env` | Yes | Fine-grained GitHub token used by n8n to dispatch Actions |
-| `N8N_CALLBACK_SECRET` | `.env` and GitHub Actions secret | Yes | Shared secret for GitHub -> n8n callback |
-| `CLAUDE_CODE_OAUTH_TOKEN` | GitHub Actions secret | Yes | Claude Code CI authentication using Claude subscription OAuth |
+| `GITHUB_DISPATCH_TOKEN` | `.env` | Yes | Fine-grained GitHub token used by the local worker to create/update PRs |
+| `N8N_CALLBACK_SECRET` | `.env` | Yes | Shared secret for worker -> n8n callback |
+| `LOCAL_WORKER_SECRET` | `.env` | Yes | Shared secret for n8n -> local worker requests |
+| `LOCAL_WORKER_URL` | `.env` | No | URL n8n uses to reach the Windows host worker |
 
 Generate `N8N_CALLBACK_SECRET` locally:
 
@@ -165,6 +166,30 @@ GitHub callback URL sent by n8n:
 https://...trycloudflare.com/webhook/poc/github/completion
 ```
 
+## Local Claude Worker
+
+The GitHub Actions OAuth-token path is not used because `claude setup-token` produced tokens that were rejected with `401 OAuth access token is invalid`. The POC therefore runs Claude Code locally on this Windows machine, where `claude auth status` confirms the interactive Claude Pro session works.
+
+Start the worker from the repository root:
+
+```powershell
+npm run worker
+```
+
+Health check:
+
+```powershell
+Invoke-WebRequest http://127.0.0.1:8787/healthz
+```
+
+n8n reaches the worker from Docker through:
+
+```text
+LOCAL_WORKER_URL=http://host.docker.internal:8787
+```
+
+The worker strips `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, and `ANTHROPIC_AUTH_TOKEN` from the Claude child process so local Claude uses the existing authenticated `claude.ai` Pro session.
+
 ## Slack Setup
 
 Create a Slack app in the `Sysco-Demo` workspace.
@@ -232,21 +257,15 @@ Change the "Reorder" button on the order history screen to "Buy Again" and make 
 
 ## GitHub Setup
 
-Create a fine-grained personal access token for n8n dispatch:
+Create a fine-grained personal access token for the local worker:
 
 1. Go to GitHub `Settings` -> `Developer settings` -> `Personal access tokens` -> `Fine-grained tokens`.
 2. Click `Generate new token`.
 3. Repository access: only `Patrick-Sherlund/prototype`.
 4. Repository permissions:
-   - `Actions`: Read and write
-   - `Contents`: Read-only
+   - `Contents`: Read and write
+   - `Pull requests`: Read and write
 5. Store it in `.env` as `GITHUB_DISPATCH_TOKEN`.
-
-GitHub Actions secrets:
-
-1. Go to repository `Settings` -> `Secrets and variables` -> `Actions`.
-2. Add `CLAUDE_CODE_OAUTH_TOKEN`.
-3. Add `N8N_CALLBACK_SECRET` with the same value used in `.env`.
 
 GitHub Pages:
 
@@ -256,19 +275,18 @@ GitHub Pages:
 4. Select folder `/ (root)`.
 5. Save.
 
-The workflows publish the main app and preview builds to that branch.
+The worker publishes preview builds to that branch.
 
 ## Claude Setup
 
-Create a Claude Code OAuth token locally:
+Confirm the local Claude Pro session works:
 
 ```powershell
-claude setup-token
+claude auth status
+claude -p "Reply with OK only." --max-turns 1
 ```
 
-Store the printed token as GitHub Actions secret `CLAUDE_CODE_OAUTH_TOKEN`.
-
-This uses Claude Code OAuth for CI. Do not substitute `ANTHROPIC_API_KEY` unless explicitly choosing API billing.
+Do not use `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` for this POC path.
 
 ## Demo Procedure
 
@@ -276,9 +294,9 @@ This uses Claude Code OAuth for CI. Do not substitute `ANTHROPIC_API_KEY` unless
 2. Update `.env` `N8N_WEBHOOK_URL` if the tunnel URL changed.
 3. Start n8n with `docker compose up -d`.
 4. Import and activate workflows.
-5. Confirm GitHub Actions secrets and Pages settings.
+5. Start the local worker with `npm run worker`.
 6. Confirm the Slack app request URL is verified.
-7. Create a Jira demo issue with `npm run create:jira-demo`.
+7. Use existing Jira issue `SYSCO-6` or create a Jira demo issue with `npm run create:jira-demo`.
 8. Post in Slack channel `C0BP62TK3PD`:
 
 ```text
@@ -289,7 +307,7 @@ Change the "Reorder" button on the order history screen to "Buy Again" and make 
 Expected result:
 
 - Jira receives a Slack request comment and moves active if a valid transition exists.
-- GitHub Actions starts `Prototype Change via Claude`.
+- n8n starts the local Claude worker.
 - Claude updates the app on `prototype/SYSCO-1`.
 - A PR opens against `main`.
 - A preview publishes under `/previews/SYSCO-1/<run-id>/`.
@@ -302,10 +320,10 @@ Expected result:
 - `SLACK_RECEIVED failed`: check Slack signing secret, webhook URL, tunnel, and system clock.
 - Slack URL verification fails: confirm workflow is active and `N8N_WEBHOOK_URL` points to the tunnel origin.
 - `JIRA_VALIDATED failed`: check Jira auth header, issue key, and project permissions.
-- `GITHUB_DISPATCHED failed`: check fine-grained token repository and `Actions: Read and write`.
-- `CLAUDE_STARTED failed`: check `CLAUDE_CODE_OAUTH_TOKEN` GitHub Actions secret.
+- `LOCAL_WORKER_STARTED failed`: check `npm run worker`, `LOCAL_WORKER_URL`, and `LOCAL_WORKER_SECRET`.
+- `CLAUDE_STARTED failed`: check `claude auth status` and confirm no metered API env vars are being used.
 - `PREVIEW_DEPLOYED` URL 404: confirm Pages is configured to branch `gh-pages` root and wait for Pages propagation.
-- `N8N_CALLBACK_SENT failed`: confirm tunnel is still running and `N8N_CALLBACK_SECRET` matches in `.env` and GitHub Actions secrets.
+- `N8N_CALLBACK_SENT failed`: confirm tunnel is still running and `N8N_CALLBACK_SECRET` matches in `.env`.
 
 ## Observability
 
@@ -315,7 +333,7 @@ Major stages are logged without secrets:
 SLACK_RECEIVED
 JIRA_VALIDATED
 JIRA_UPDATED
-GITHUB_DISPATCHED
+LOCAL_WORKER_STARTED
 CLAUDE_STARTED
 CODE_CHANGED
 BUILD_PASSED
@@ -327,4 +345,4 @@ JIRA_COMPLETED
 SLACK_COMPLETED
 ```
 
-Use the correlation ID shown in Slack, Jira comments, n8n execution logs, and GitHub Action logs to follow one request end to end.
+Use the correlation ID shown in Slack, Jira comments, n8n execution logs, local worker logs, and PR metadata to follow one request end to end.

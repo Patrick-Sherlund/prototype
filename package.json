@@ -7,8 +7,10 @@
     "dev": "node scripts/serve.mjs .",
     "build": "node scripts/build.mjs",
     "preview": "node scripts/serve.mjs dist",
+    "worker": "node automation/local-worker/worker.mjs",
     "build:workflows": "node automation/n8n/build-workflows.mjs",
     "validate:workflows": "node automation/n8n/build-workflows.mjs --check",
+    "validate:claude-oauth": "powershell -ExecutionPolicy Bypass -File automation/scripts/validate-claude-oauth.ps1",
     "create:jira-demo": "node automation/scripts/create-jira-demo-issue.mjs"
   },
   "dependencies": {},
