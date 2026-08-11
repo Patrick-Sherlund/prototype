@@ -200,6 +200,78 @@ jobs:
             --max-turns 12
             --allowedTools "Bash(npm:*),Bash(git:*),Bash(gh:*),Bash(ls:*),Bash(pwd),Bash(find:*),Read,Edit,MultiEdit,Write,Glob,Grep,LS"
 
+      - name: Capture Claude diagnostic summary
+        if: always()
+        shell: bash
+        env:
+          CLAUDE_EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+          CLAUDE_CONCLUSION: ${{ steps.claude.outputs.conclusion }}
+          CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
+        run: |
+          set -euo pipefail
+          echo "CLAUDE_RESULT=${CLAUDE_CONCLUSION:-$CLAUDE_OUTCOME}" >> "$GITHUB_ENV"
+
+          node <<'NODE'
+          const fs = require('fs');
+
+          const envPath = process.env.GITHUB_ENV;
+          const executionFile = process.env.CLAUDE_EXECUTION_FILE || '';
+          const allowedLeafKeys = new Set([
+            'api_error_status',
+            'error',
+            'error_message',
+            'error_status',
+            'is_error',
+            'result',
+            'status',
+            'subtype',
+            'terminal_reason',
+          ]);
+
+          function redact(value) {
+            return String(value)
+              .replace(/sk-ant-[A-Za-z0-9._-]+/g, '[redacted-token]')
+              .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[redacted-email]');
+          }
+
+          function collect(value, path, out) {
+            if (value === null || value === undefined) return;
+            if (Array.isArray(value)) {
+              value.forEach((entry, index) => collect(entry, `${path}[${index}]`, out));
+              return;
+            }
+            if (typeof value === 'object') {
+              Object.entries(value).forEach(([key, entry]) => collect(entry, path ? `${path}.${key}` : key, out));
+              return;
+            }
+
+            const leaf = path.split('.').pop().replace(/\[\d+\]$/, '').toLowerCase();
+            if (!allowedLeafKeys.has(leaf) && !leaf.endsWith('_error')) return;
+
+            const text = redact(value).replace(/\s+/g, ' ').trim();
+            if (!text) return;
+            if (leaf === 'result' && !/(401|auth|oauth|invalid|unauthorized|error|fail)/i.test(text)) return;
+            if (text.length > 900) return;
+            out.push(`${path}: ${text}`);
+          }
+
+          const details = [];
+          if (executionFile && fs.existsSync(executionFile)) {
+            try {
+              const parsed = JSON.parse(fs.readFileSync(executionFile, 'utf8'));
+              collect(parsed, '', details);
+            } catch (error) {
+              details.push(`diagnostic_parse_error: ${redact(error.message)}`);
+            }
+          } else {
+            details.push('diagnostic_file_missing');
+          }
+
+          const summary = (details.length ? details.join(' | ') : 'No Claude execution error metadata captured.').slice(0, 1800);
+          fs.appendFileSync(envPath, `CLAUDE_ERROR_SUMMARY<<EOF\n${summary}\nEOF\n`);
+          console.log(`Claude diagnostic summary captured (${summary.length} chars).`);
+          NODE
+
       - name: Stop if Claude failed
         if: steps.claude.outcome != 'success'
         shell: bash
@@ -365,9 +437,9 @@ jobs:
               pr_url: process.env.PR_URL || '',
               preview_url: process.env.PREVIEW_URL || '',
               build_result: success ? 'success' : 'failed',
-              claude_result: process.env.CLAUDE_OUTCOME || 'unknown',
+              claude_result: process.env.CLAUDE_RESULT || process.env.CLAUDE_OUTCOME || 'unknown',
               run_url: process.env.RUN_URL,
-              error_message: success ? '' : `GitHub Actions failed at or before ${process.env.STAGE || 'unknown'}`,
+              error_message: success ? '' : (process.env.CLAUDE_ERROR_SUMMARY || `GitHub Actions failed at or before ${process.env.STAGE || 'unknown'}`),
             };
 
             const response = await fetch(callbackUrl, {
