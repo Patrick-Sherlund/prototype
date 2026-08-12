@@ -5,21 +5,17 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const code = (name) => readFileSync(join(here, 'code', name), 'utf8');
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+
 const codeFiles = [
-  'slack-parse-and-verify.js',
-  'standup-dispatch-jira-workflow.js',
-  'jira-validate-and-mark-active.js',
-  'github-dispatch-claude-workflow.js',
-  'slack-report-request-failure.js',
-  'github-callback-verify.js',
-  'jira-record-completion.js',
-  'slack-reply-completion.js',
-  'standup-verify-request.js',
-  'standup-analyze-with-claude.js',
-  'standup-validate-output.js',
-  'standup-apply-jira-changes.js',
-  'standup-build-summary.js',
-  'standup-reply-slack.js',
+  'figma-validate-webhook.js',
+  'jira-verify-handoff-issue.js',
+  'slack-create-handoff-thread.js',
+  'slack-post-status.js',
+  'figma-resolve-source.js',
+  'claude-start-figma-handoff.js',
+  'figma-callback-verify.js',
+  'jira-record-figma-handoff.js',
+  'slack-finalize-handoff.js',
 ];
 
 function webhookNode(id, name, path, position) {
@@ -77,36 +73,119 @@ function respondNode(id, name, position) {
   };
 }
 
-function connect(names) {
+function slackStatusNode(id, name, status, position) {
+  return codeNode(
+    id,
+    name,
+    `const STATUS = ${JSON.stringify(status, null, 2)};\n${code('slack-post-status.js')}`,
+    position,
+  );
+}
+
+function connectPairs(pairs) {
   const connections = {};
-  for (let index = 0; index < names.length - 1; index += 1) {
-    connections[names[index]] = {
-      main: [[{ node: names[index + 1], type: 'main', index: 0 }]],
-    };
+  for (const [from, to] of pairs) {
+    connections[from] = connections[from] || { main: [[]] };
+    connections[from].main[0].push({ node: to, type: 'main', index: 0 });
   }
   return connections;
 }
 
-const slackRequest = {
-  id: 'pocSlackRequest',
-  name: 'POC A - Slack Request to Claude Prototype',
+const figmaMakeDesignHandoff = {
+  id: 'figmaMakeDesignHandoff',
+  name: 'Figma Make Version to Design Handoff',
   nodes: [
-    webhookNode('slack-event-webhook', 'Slack Event Webhook', 'poc/slack/request', [0, 0]),
-    codeNode('slack-parse-verify', 'Slack - Parse and Verify', code('slack-parse-and-verify.js'), [260, 0]),
-    respondNode('respond-to-slack', 'Respond to Slack', [520, 0]),
-    codeNode('standup-dispatch-jira', 'Standup - Dispatch Jira Workflow', code('standup-dispatch-jira-workflow.js'), [780, 0]),
-    codeNode('jira-validate-active', 'Jira - Validate and Mark Active', code('jira-validate-and-mark-active.js'), [1040, 0]),
-    codeNode('local-worker-start-claude', 'Local Worker - Start Claude Implementation', code('github-dispatch-claude-workflow.js'), [1300, 0]),
-    codeNode('slack-report-request-failure', 'Slack - Report Request Failure', code('slack-report-request-failure.js'), [1560, 0]),
+    webhookNode('figma-version-webhook', 'Figma Version Webhook', 'poc/figma/version-update', [0, 0]),
+    codeNode('figma-validate-webhook', 'Figma - Validate Webhook', code('figma-validate-webhook.js'), [260, 0]),
+    respondNode('respond-to-figma', 'Respond to Figma', [520, 0]),
+    codeNode('jira-verify-issue', 'Jira - Verify Handoff Issue', code('jira-verify-handoff-issue.js'), [780, 0]),
+    codeNode('slack-create-thread', 'Slack - Create Handoff Thread', code('slack-create-handoff-thread.js'), [1040, 0]),
+    slackStatusNode(
+      'slack-status-jira-verified',
+      'Slack - Jira Verified',
+      {
+        condition: 'jiraVerified',
+        messages: ['\\u2705 Jira issue {{jiraIssueKey}} verified.'],
+      },
+      [1300, 0],
+    ),
+    codeNode('figma-resolve-source', 'Figma - Resolve Source', code('figma-resolve-source.js'), [1560, 0]),
+    slackStatusNode(
+      'slack-status-figma-source',
+      'Slack - Figma Source Resolved',
+      {
+        condition: 'figmaResolved',
+        messages: ['\\u2705 Figma Make source resolved.'],
+      },
+      [1820, 0],
+    ),
+    slackStatusNode(
+      'slack-status-claude-processing',
+      'Slack - Claude Figma Processing',
+      {
+        condition: 'processing',
+        messages: [
+          '\\u{1F504} Accessing the latest Figma Make prototype.',
+          '\\u{1F504} Converting the current prototype into editable Figma Design layers.',
+        ],
+      },
+      [2080, 0],
+    ),
+    codeNode('local-worker-start-figma', 'Local Worker - Start Figma Handoff', code('claude-start-figma-handoff.js'), [2340, 0]),
+    slackStatusNode(
+      'slack-status-retry-jira',
+      'Slack - Retry Jira Only',
+      {
+        condition: 'retryJiraOnly',
+        messages: [
+          '\\u26A0\\uFE0F Figma Design was created successfully, but the Jira update failed.',
+          'Retrying Jira without regenerating the design.',
+        ],
+      },
+      [2600, 0],
+    ),
+    webhookNode('figma-completion-webhook', 'Figma Handoff Completion Webhook', 'poc/figma/handoff/completion', [0, 520]),
+    codeNode('figma-verify-callback', 'Figma - Verify Completion Callback', code('figma-callback-verify.js'), [260, 520]),
+    respondNode('respond-to-worker', 'Respond to Worker', [520, 520]),
+    slackStatusNode(
+      'slack-status-figma-created',
+      'Slack - Figma Design Created',
+      {
+        condition: 'figmaReady',
+        messages: ['\\u2705 Editable Figma Design created successfully.\\n\\n{{figmaDesignUrl}}'],
+      },
+      [780, 520],
+    ),
+    slackStatusNode(
+      'slack-status-jira-updating',
+      'Slack - Jira Updating',
+      {
+        condition: 'jiraUpdating',
+        messages: ['\\u{1F504} Updating {{jiraIssueKey}} with the new Figma Design.'],
+      },
+      [1040, 520],
+    ),
+    codeNode('jira-record-handoff', 'Jira - Record Figma Handoff', code('jira-record-figma-handoff.js'), [1300, 520]),
+    codeNode('slack-finalize-handoff', 'Slack - Finalize Handoff', code('slack-finalize-handoff.js'), [1560, 520]),
   ],
-  connections: connect([
-    'Slack Event Webhook',
-    'Slack - Parse and Verify',
-    'Respond to Slack',
-    'Standup - Dispatch Jira Workflow',
-    'Jira - Validate and Mark Active',
-    'Local Worker - Start Claude Implementation',
-    'Slack - Report Request Failure',
+  connections: connectPairs([
+    ['Figma Version Webhook', 'Figma - Validate Webhook'],
+    ['Figma - Validate Webhook', 'Respond to Figma'],
+    ['Respond to Figma', 'Jira - Verify Handoff Issue'],
+    ['Jira - Verify Handoff Issue', 'Slack - Create Handoff Thread'],
+    ['Slack - Create Handoff Thread', 'Slack - Jira Verified'],
+    ['Slack - Jira Verified', 'Figma - Resolve Source'],
+    ['Figma - Resolve Source', 'Slack - Figma Source Resolved'],
+    ['Slack - Figma Source Resolved', 'Slack - Claude Figma Processing'],
+    ['Slack - Claude Figma Processing', 'Local Worker - Start Figma Handoff'],
+    ['Local Worker - Start Figma Handoff', 'Slack - Retry Jira Only'],
+    ['Slack - Retry Jira Only', 'Jira - Record Figma Handoff'],
+    ['Figma Handoff Completion Webhook', 'Figma - Verify Completion Callback'],
+    ['Figma - Verify Completion Callback', 'Respond to Worker'],
+    ['Respond to Worker', 'Slack - Figma Design Created'],
+    ['Slack - Figma Design Created', 'Slack - Jira Updating'],
+    ['Slack - Jira Updating', 'Jira - Record Figma Handoff'],
+    ['Jira - Record Figma Handoff', 'Slack - Finalize Handoff'],
   ]),
   settings: {
     executionOrder: 'v1',
@@ -114,81 +193,13 @@ const slackRequest = {
     saveDataErrorExecution: 'all',
   },
   active: false,
-  versionId: 'slack-request-workflow-v1',
+  versionId: 'figma-make-design-handoff-v1',
   meta: {
     templateCredsSetupCompleted: true,
   },
 };
 
-const githubCompletion = {
-  id: 'pocGithubCompletion',
-  name: 'POC B - GitHub Completion to Jira and Slack',
-  nodes: [
-    webhookNode('github-completion-webhook', 'GitHub Completion Webhook', 'poc/github/completion', [0, 0]),
-    codeNode('github-verify-callback', 'GitHub - Verify Callback', code('github-callback-verify.js'), [260, 0]),
-    respondNode('respond-to-github', 'Respond to GitHub', [520, 0]),
-    codeNode('jira-record-completion', 'Jira - Record Completion', code('jira-record-completion.js'), [780, 0]),
-    codeNode('slack-reply-completion', 'Slack - Reply Completion', code('slack-reply-completion.js'), [1040, 0]),
-  ],
-  connections: connect([
-    'GitHub Completion Webhook',
-    'GitHub - Verify Callback',
-    'Respond to GitHub',
-    'Jira - Record Completion',
-    'Slack - Reply Completion',
-  ]),
-  settings: {
-    executionOrder: 'v1',
-    saveDataSuccessExecution: 'all',
-    saveDataErrorExecution: 'all',
-  },
-  active: false,
-  versionId: 'github-completion-workflow-v1',
-  meta: {
-    templateCredsSetupCompleted: true,
-  },
-};
-
-const standupJira = {
-  id: 'pocStandupJira',
-  name: 'POC C - Standup Transcript to Jira Summary',
-  nodes: [
-    webhookNode('standup-receive-webhook', 'Receive Standup Request', 'poc/standup/jira', [0, 0]),
-    codeNode('standup-verify-request', 'Detect Standup Request', code('standup-verify-request.js'), [260, 0]),
-    respondNode('respond-to-standup-dispatch', 'Acknowledge Standup Dispatch', [520, 0]),
-    codeNode('standup-analyze-claude', 'Analyze Standup With Claude', code('standup-analyze-with-claude.js'), [780, 0]),
-    codeNode('standup-validate-output', 'Validate Claude Output', code('standup-validate-output.js'), [1040, 0]),
-    codeNode('standup-apply-jira', 'Apply Jira Changes', code('standup-apply-jira-changes.js'), [1300, 0]),
-    codeNode('standup-build-summary', 'Build Standup Summary', code('standup-build-summary.js'), [1560, 0]),
-    codeNode('standup-reply-slack', 'Reply to Slack', code('standup-reply-slack.js'), [1820, 0]),
-  ],
-  connections: connect([
-    'Receive Standup Request',
-    'Detect Standup Request',
-    'Acknowledge Standup Dispatch',
-    'Analyze Standup With Claude',
-    'Validate Claude Output',
-    'Apply Jira Changes',
-    'Build Standup Summary',
-    'Reply to Slack',
-  ]),
-  settings: {
-    executionOrder: 'v1',
-    saveDataSuccessExecution: 'all',
-    saveDataErrorExecution: 'all',
-  },
-  active: false,
-  versionId: 'standup-jira-workflow-v1',
-  meta: {
-    templateCredsSetupCompleted: true,
-  },
-};
-
-const outputs = [
-  ['slack-request-workflow.json', slackRequest],
-  ['github-completion-workflow.json', githubCompletion],
-  ['standup-jira-workflow.json', standupJira],
-];
+const outputs = [['figma-make-design-handoff.json', figmaMakeDesignHandoff]];
 
 if (process.argv.includes('--check')) {
   for (const name of codeFiles) {

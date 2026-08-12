@@ -1,92 +1,90 @@
-# Slack to Claude Prototype POC
+# Figma Make to Editable Figma Design Handoff POC
 
 ## Architecture
 
 ```text
-Slack channel C0BP62TK3PD
+Designer
   |
-  | Slack Events API
+  | edits Figma Make prototype
+  | creates named version, for example "SYSCO-1 | Ready for Design"
+  v
+Figma FILE_VERSION_UPDATE webhook
+  |
   v
 Local n8n Community Edition
-  |  A. Slack Request Workflow
-  |  - verify Slack signature
-  |  - parse SYSCO issue key and request
-  |  - validate/update Jira
-  |  - start local Claude worker
+  |  - validate webhook passcode
+  |  - accept only FILE_VERSION_UPDATE
+  |  - parse SYSCO issue key from version label/description
+  |  - enforce idempotency with file_key + version_id
+  |  - verify existing Jira issue
+  |  - create one Slack parent status message
+  |  - post status replies to the same thread
+  |  - invoke local Claude Code worker
+  v
+Local Claude Code worker on Windows host
   |
+  | Claude Code + Figma MCP
+  |  - access Figma Make context/resources
+  |  - render/access current Make prototype
+  |  - run generate_figma_design / Code to Canvas
+  |  - create or update editable Figma Design
+  |  - return structured JSON
   v
-Jira Cloud SYSCO project <-----------------------------+
-  |                                                    |
-  v                                                    |
-Local Claude Code worker on Windows host              |
-  |                                                    |
-  v                                                    |
-Claude Code using local claude.ai Pro session          |
-  |                                                    |
-  | prototype/SYSCO-123 branch, commit, PR             |
-  v                                                    |
-GitHub Pages gh-pages branch preview                  |
-  |                                                    |
-  | B. signed callback                                 |
-  v                                                    |
-Local n8n Completion Workflow ------------------------+
-  |
-  | Jira completion comment + Slack thread reply
+n8n completion callback
+  |  - persist Jira -> Figma Design mapping
+  |  - update Jira
+  |  - retry Jira without regenerating design if Jira fails
+  |  - post final result in original Slack thread
   v
-Slack original thread
-
-Second independent Jira-management path:
-
-Slack STANDUP message
-  |
-  v
-Local n8n Standup Workflow
-  |  - route away from prototype automation
-  |  - analyze transcript with local Claude
-  |  - validate structured action plan
-  |  - retrieve Jira issues/transitions
-  |  - apply Jira comments/status changes or dry-run
-  v
-Slack original standup thread
+Jira + Slack
 ```
+
+## Source of Truth
+
+Figma Make is authoritative. The generated Figma Design file is a downstream handoff artifact. Jira and Slack provide traceability and visibility only.
+
+Claude Code is not responsible for Jira, Slack, GitHub, commits, PRs, or source-code changes during runtime handoffs. It is used only because it is the supported execution agent for Figma MCP and `generate_figma_design`.
 
 ## Repository
 
 - GitHub repository: `Patrick-Sherlund/prototype`
-- Main branch: `main`
-- Automated implementation branches: `prototype/<SYSCO-issue-key>`
-- Prototype preview path: `https://patrick-sherlund.github.io/prototype/previews/<SYSCO-issue-key>/<correlation-id>/`
-- Latest issue preview alias: `https://patrick-sherlund.github.io/prototype/previews/<SYSCO-issue-key>/latest/`
+- Primary branch: `main`
+- Feature branch for this replacement: `feature/figma-make-design-handoff`
+- n8n workflow export: `automation/n8n/figma-make-design-handoff.json`
+- Local worker: `automation/local-worker/worker.mjs`
+- Claude/Figma prompt + JSON helpers: `automation/claude/figma-handoff.mjs`
 
-## Local Prototype
+The old Slack-triggered code-generation flow, GitHub dispatch flow, PR creation, and preview deployment are not part of this workflow.
 
-```powershell
-npm ci
-npm run dev
-npm run build
-npm run preview
-```
+## Required Configuration
 
-The app is intentionally small and dependency-free because the local Windows sandbox blocked Vite/esbuild native process execution. The npm interface remains the same for local Claude Code automation.
+Copy `.env.example` to `.env` and fill in local values. Do not commit `.env`.
 
-## Required Secrets
+| Name | Sensitive | Purpose |
+| --- | --- | --- |
+| `N8N_WEBHOOK_URL` | No | Public HTTPS base URL for Figma webhook and worker callback |
+| `N8N_ENCRYPTION_KEY` | Yes | Stable n8n credential encryption key |
+| `FIGMA_ACCESS_TOKEN` | Yes | Used by `npm run figma:webhook:register` |
+| `FIGMA_ACCESS_TOKEN_TYPE` | No | `oauth` for Authorization bearer token, `personal` for X-Figma-Token |
+| `FIGMA_WEBHOOK_PASSCODE` | Yes | Shared passcode validated from Figma webhook payload |
+| `FIGMA_MAKE_FILE_KEY` | No | Figma Make file key used by webhook registration helper |
+| `FIGMA_MAKE_URL` | No | Optional full Make URL passed to Claude Code |
+| `FIGMA_MAKE_PUBLISHED_URL` | No | Optional browser-renderable Make URL |
+| `FIGMA_DESTINATION_FILE_KEY` | No | Optional default Design destination |
+| `FIGMA_DESTINATION_FILE_URL` | No | Optional default Design destination URL |
+| `SLACK_CHANNEL_ID` | No | Status channel, currently `C0BP62TK3PD` |
+| `SLACK_BOT_TOKEN` | Yes | Posts parent message and thread replies |
+| `JIRA_BASE_URL` | No | `https://patricksherlund.atlassian.net` |
+| `JIRA_PROJECT_KEY` | No | `SYSCO` |
+| `JIRA_AUTH_HEADER` | Yes | Jira Basic auth header |
+| `N8N_CALLBACK_SECRET` | Yes | Worker -> n8n callback authentication |
+| `LOCAL_WORKER_URL` | No | n8n -> local worker URL, usually `http://host.docker.internal:8787` |
+| `LOCAL_WORKER_SECRET` | Yes | n8n -> worker authentication |
+| `FIGMA_CLAUDE_MAX_TURNS` | No | Claude turn budget for the handoff |
+| `FIGMA_HANDOFF_TIMEOUT_MS` | No | Worker timeout for the Claude/Figma operation |
+| `FIGMA_CLAUDE_ALLOWED_TOOLS` | No | Claude tools allowed for Figma MCP handoff |
 
-Put local n8n secrets in `.env`, copied from `.env.example`. Do not commit `.env`.
-
-| Name | Destination | Sensitive | Purpose |
-| --- | --- | --- | --- |
-| `N8N_ENCRYPTION_KEY` | `.env` | Yes | Stable n8n credential encryption key |
-| `N8N_WEBHOOK_URL` | `.env` | No | Public tunnel base URL for n8n production webhooks |
-| `SLACK_SIGNING_SECRET` | `.env` | Yes | Verify Slack Events API signatures |
-| `SLACK_BOT_TOKEN` | `.env` | Yes | Reply to Slack threads |
-| `JIRA_AUTH_HEADER` | `.env` | Yes | Jira Basic auth header for REST API |
-| `GITHUB_DISPATCH_TOKEN` | `.env` | Yes | Fine-grained GitHub token used by the local worker to create/update PRs |
-| `N8N_CALLBACK_SECRET` | `.env` | Yes | Shared secret for worker -> n8n callback |
-| `LOCAL_WORKER_SECRET` | `.env` | Yes | Shared secret for n8n -> local worker requests |
-| `LOCAL_WORKER_URL` | `.env` | No | URL n8n uses to reach the Windows host worker |
-| `STANDUP_INTERNAL_SECRET` | `.env` | Yes | Optional internal n8n routing secret; falls back to `LOCAL_WORKER_SECRET` |
-
-Generate `N8N_CALLBACK_SECRET` locally:
+Generate local shared secrets:
 
 ```powershell
 node -e "console.log(crypto.randomBytes(32).toString('hex'))"
@@ -99,35 +97,28 @@ $pair = "patricksherlund@gmail.com:<jira-api-token>"
 "Basic " + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($pair))
 ```
 
-## n8n
+## Docker and n8n
 
-Start:
+Start n8n:
 
 ```powershell
-Copy-Item .env.example .env
-# Fill .env with real local values.
 docker compose up -d
 docker compose ps
-```
-
-Health check:
-
-```powershell
 Invoke-WebRequest http://localhost:5678/healthz
 ```
 
-Import workflows:
+Build, import, and publish the workflow:
 
 ```powershell
 npm run build:workflows
 .\automation\scripts\import-n8n-workflows.ps1
 ```
 
-Open `http://localhost:5678`, review the workflows, and activate:
+Open `http://localhost:5678`, review, and activate:
 
-- `POC A - Slack Request to Claude Prototype`
-- `POC B - GitHub Completion to Jira and Slack`
-- `POC C - Standup Transcript to Jira Summary`
+```text
+Figma Make Version to Design Handoff
+```
 
 Stop:
 
@@ -141,104 +132,113 @@ Reset n8n data:
 docker compose down -v
 ```
 
+Resetting n8n data removes workflow static data, including idempotency and Jira -> Figma Design mappings.
+
 ## Tunnel
 
-Slack must reach local n8n. Use a free tunnel and put its HTTPS origin in `.env` as `N8N_WEBHOOK_URL`.
-
-Preferred:
+Figma must reach local n8n over HTTPS. Start the included Cloudflare quick tunnel:
 
 ```powershell
 docker compose --profile tunnel up -d cloudflared
 docker compose logs -f cloudflared
 ```
 
-Use the printed `https://...trycloudflare.com` value as:
+Use the printed `https://...trycloudflare.com` origin as:
 
 ```text
 N8N_WEBHOOK_URL=https://...trycloudflare.com
 ```
 
-Then recreate n8n so workflow callbacks use the current public URL:
+Then recreate n8n so it sees the current value:
 
 ```powershell
 docker compose up -d --force-recreate n8n
 ```
 
-Stop the tunnel:
-
-```powershell
-docker compose stop cloudflared
-```
-
-Slack request URL:
+Figma webhook URL:
 
 ```text
-https://...trycloudflare.com/webhook/poc/slack/request
+<N8N_WEBHOOK_URL>/webhook/poc/figma/version-update
 ```
 
-GitHub callback URL sent by n8n:
+Worker callback URL:
 
 ```text
-https://...trycloudflare.com/webhook/poc/github/completion
+<N8N_WEBHOOK_URL>/webhook/poc/figma/handoff/completion
 ```
 
-## Local Claude Worker
+## Figma Webhook
 
-The GitHub Actions OAuth-token path is not used because `claude setup-token` produced tokens that were rejected with `401 OAuth access token is invalid`. The POC therefore runs Claude Code locally on this Windows machine, where `claude auth status` confirms the interactive Claude Pro session works.
+Figma webhook registration uses:
 
-Start the worker from the repository root:
+```json
+{
+  "event_type": "FILE_VERSION_UPDATE",
+  "context": "file",
+  "context_id": "<Figma Make file key>",
+  "endpoint": "<N8N_WEBHOOK_URL>/webhook/poc/figma/version-update",
+  "passcode": "<FIGMA_WEBHOOK_PASSCODE>"
+}
+```
+
+Register:
 
 ```powershell
-npm run worker:start
+npm run figma:webhook:register
 ```
 
-Health check:
+Override values when needed:
 
 ```powershell
-Invoke-WebRequest http://127.0.0.1:8787/healthz
+npm run figma:webhook:register -- --file-key <file-key> --endpoint https://example.com/webhook/poc/figma/version-update
 ```
 
-Stop the worker:
+Figma sends a `PING` event after webhook creation. The workflow validates the passcode and returns `200 OK`.
 
-```powershell
-npm run worker:stop
-```
+Named versions are the deliberate handoff action. The automation does not assume every Figma Make AI edit produces `FILE_VERSION_UPDATE`.
 
-n8n reaches the worker from Docker through:
+## Figma Version Format
+
+Supported label or description:
 
 ```text
-LOCAL_WORKER_URL=http://host.docker.internal:8787
+SYSCO-1 | Ready for Design
 ```
 
-The worker strips `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, and `ANTHROPIC_AUTH_TOKEN` from the Claude child process so local Claude uses the existing authenticated `claude.ai` Pro session.
+The workflow searches both version label and description with the configured Jira project key. For this repo that is equivalent to:
 
-The same worker also exposes a standup analysis endpoint. That endpoint only asks Claude to return structured JSON for a transcript; it does not run git, create branches, modify prototype files, open PRs, publish previews, or run builds.
+```regex
+\bSYSCO-\d+\b
+```
+
+If no Jira key is found, n8n does not invoke Claude Code and does not update Jira. If Slack is configured, it posts a safe failure notification.
 
 ## Slack Setup
 
-Create a Slack app in the `Sysco-Demo` workspace.
+Reuse the existing Slack app in workspace `Sysco-Demo`.
 
-1. Go to `https://api.slack.com/apps`.
-2. Click `Create New App`.
-3. Choose `From scratch`.
-4. Name it, for example `Prototype Automation`.
-5. Select workspace `Sysco-Demo`.
-6. Go to `OAuth & Permissions`.
-7. Add bot token scopes:
-   - `chat:write`
-   - `channels:history`
-8. Install the app to the workspace.
-9. Copy the bot token into `.env` as `SLACK_BOT_TOKEN`.
-10. Go to `Basic Information`.
-11. Copy `Signing Secret` into `.env` as `SLACK_SIGNING_SECRET`.
-12. Invite the app to channel `C0BP62TK3PD`.
-13. Go to `Event Subscriptions`.
-14. Enable events.
-15. Enter the n8n request URL: `<N8N_WEBHOOK_URL>/webhook/poc/slack/request`.
-16. Subscribe to bot event: `message.channels`.
-17. Save changes and reinstall the app if Slack prompts for reinstall.
+Required bot scope:
 
-The workflow ignores bot messages, Slack retries, messages outside `C0BP62TK3PD`, and empty messages. A human message may include a `SYSCO-<number>` key or omit the key entirely. If no key is supplied, n8n creates a new Jira issue and uses Jira's generated key as the canonical work item.
+```text
+chat:write
+```
+
+Invite the app to channel:
+
+```text
+C0BP62TK3PD
+```
+
+The workflow creates exactly one parent channel message for each accepted handoff, then stores the returned Slack `ts` as `slackThreadTs`. Every progress and final message uses:
+
+```json
+{
+  "channel": "C0BP62TK3PD",
+  "thread_ts": "<parent message ts>"
+}
+```
+
+Slack failure alone does not invalidate a successful Figma/Jira handoff. n8n logs Slack errors and continues when safe.
 
 ## Jira Setup
 
@@ -254,203 +254,272 @@ Project key:
 SYSCO
 ```
 
-Create an API token:
+The workflow only verifies and updates existing issues. It does not create replacement issues.
 
-1. Go to `https://id.atlassian.com/manage-profile/security/api-tokens`.
-2. Click `Create API token`.
-3. Label it `n8n SYSCO prototype POC`.
-4. Copy the token once.
-5. Create `JIRA_AUTH_HEADER` with the PowerShell command above.
-6. Store only the final auth header in `.env`.
-
-Create a demo issue after `.env` is configured:
-
-```powershell
-$env:JIRA_BASE_URL="https://patricksherlund.atlassian.net"
-$env:JIRA_PROJECT_KEY="SYSCO"
-$env:JIRA_AUTH_HEADER="Basic <base64-email-colon-api-token>"
-npm run create:jira-demo
-```
-
-Use an existing Jira issue key in Slack, for example:
+After Figma generation succeeds, n8n adds a Jira comment containing:
 
 ```text
-SYSCO-1
-Change the "Reorder" button on the order history screen to "Buy Again" and make it more visually prominent.
+Design handoff generated automatically from Figma Make.
+Source: <version label>
+Editable Figma Design: <url>
+Correlation ID: <id>
 ```
 
-If the Slack message omits a Jira key, n8n creates a new issue in the configured `SYSCO` project. If the Slack message references a `SYSCO-<number>` key that Jira returns as missing, n8n also creates a new issue. The workflow selects an available non-subtask issue type from the project, preferring `Story`, then `Task`, then `Feature`. Jira assigns the real key; the workflow preserves the Slack-requested key when one was provided, then uses the Jira-generated key as the canonical identifier for the correlation ID, worker branch, commit, PR, preview path, Jira completion comment, and Slack completion reply.
+It also inspects available transitions and applies a review-like transition when one is available. Transition IDs are discovered from Jira at runtime, not hard-coded.
 
-## Standup Jira Automation
+## Claude Code and Figma MCP
 
-The standup workflow is separate from prototype implementation. It performs Jira management only:
-
-```text
-Slack STANDUP transcript -> n8n -> local Claude transcript analysis -> Jira comments/transitions -> Slack summary
-```
-
-It never invokes the prototype coding path and never creates branches, PRs, builds, or previews.
-
-Dry-run format:
-
-```text
-STANDUP DRY RUN
-
-Patrick:
-SYSCO-6 is ready for review.
-
-Shelby:
-SYSCO-8 is completely done.
-
-Patrick:
-SYSCO-10 is blocked waiting on backend API access.
-```
-
-Live format:
-
-```text
-STANDUP
-
-Patrick:
-SYSCO-6 is ready for review.
-
-Shelby:
-SYSCO-8 is completely done.
-```
-
-Supported semantic states:
-
-- `in_progress`: started, working on, in progress.
-- `review`: ready for review, needs review, finished implementation.
-- `done`: done, completed, finished and accepted, close this.
-- `blocked`: blocked, waiting on, cannot continue until.
-- `no_change`: continuing work, needs another day, still in progress.
-- `clarification`: ambiguous or low-confidence updates.
-
-Safety rules:
-
-- Jira transition IDs are never hard-coded.
-- Each issue is retrieved independently.
-- Available transitions are inspected per issue before mapping semantic intent to Jira workflow states.
-- High-confidence actions may transition Jira.
-- Medium-confidence actions may add a comment but avoid status transitions.
-- Low-confidence actions do not mutate Jira and are reported as needing clarification.
-- Unknown issues mentioned in a standup are not created; they are reported as not found.
-- One issue failure does not prevent other issue updates.
-- The full transcript is not pasted into every ticket; comments use ticket-specific evidence and a correlation ID.
-
-Dry-run mode retrieves Jira issues and transitions, builds a proposed action plan, and replies in Slack without mutating Jira.
-
-Limitations:
-
-- Assignee, priority, and description updates are intentionally not implemented yet; the workflow only comments and transitions statuses.
-- Claude output is accepted only as validated structured JSON.
-
-## GitHub Setup
-
-Create a fine-grained personal access token for the local worker:
-
-1. Go to GitHub `Settings` -> `Developer settings` -> `Personal access tokens` -> `Fine-grained tokens`.
-2. Click `Generate new token`.
-3. Repository access: only `Patrick-Sherlund/prototype`.
-4. Repository permissions:
-   - `Contents`: Read and write
-   - `Pull requests`: Read and write
-5. Store it in `.env` as `GITHUB_DISPATCH_TOKEN`.
-
-GitHub Pages:
-
-1. Go to repository `Settings` -> `Pages`.
-2. Set source to `Deploy from a branch`.
-3. Select branch `gh-pages`.
-4. Select folder `/ (root)`.
-5. Save.
-
-The worker publishes preview builds to that branch.
-
-## Claude Setup
-
-Confirm the local Claude Pro session works:
+Confirm the local Claude Pro session:
 
 ```powershell
 claude auth status
-claude -p "Reply with OK only." --max-turns 1
 ```
 
-Do not use `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` for this POC path.
+Configure the Figma MCP server for Claude Code. Preferred Figma plugin setup:
 
-## Demo Procedure
-
-1. Start the tunnel.
-2. Update `.env` `N8N_WEBHOOK_URL` if the tunnel URL changed.
-3. Start n8n with `docker compose up -d`.
-4. Import and activate workflows.
-5. Start the local worker with `npm run worker:start`.
-6. Confirm the Slack app request URL is verified.
-7. Use existing Jira issue `SYSCO-6`, create a Jira demo issue with `npm run create:jira-demo`, post a missing key, or post a request without any key to validate Jira issue creation.
-8. Post in Slack channel `C0BP62TK3PD`:
-
-```text
-SYSCO-1
-Change the "Reorder" button on the order history screen to "Buy Again" and make it more visually prominent.
+```powershell
+claude plugin install figma@claude-plugins-official
 ```
 
-Expected result:
+Manual remote MCP setup:
 
-- Jira receives a Slack request comment and moves active if a valid transition exists.
-- If no Jira key was supplied, Jira receives a newly created issue and the Slack reply states the Jira-generated key.
-- If the requested Jira key was missing, Jira receives a newly created issue and the Slack reply states the requested key and the Jira-generated key.
-- n8n starts the local Claude worker.
-- Claude updates the app on `prototype/<real-Jira-issue-key>`.
-- A PR opens against `main`.
-- A preview publishes under `/previews/<real-Jira-issue-key>/<run-id>/`.
-- n8n receives the callback.
-- Jira receives completion details.
-- Slack receives a thread reply with preview, PR, Jira URL, and build status.
+```powershell
+claude mcp add --scope user --transport http figma https://mcp.figma.com/mcp
+```
 
-## Troubleshooting
+Then start Claude Code interactively once, open `/mcp`, authenticate the Figma server, and confirm:
 
-- `SLACK_RECEIVED failed`: check Slack signing secret, webhook URL, tunnel, and system clock.
-- Slack URL verification fails: confirm workflow is active and `N8N_WEBHOOK_URL` points to the tunnel origin.
-- `JIRA_LOOKUP failed`: check Jira auth header, project key, and permissions.
-- `JIRA_CREATED failed`: Jira returned 404 for the requested issue but n8n could not create a replacement issue. Check project issue types and create permissions.
-- `JIRA_VALIDATED failed`: Jira found or created the issue, but a follow-up comment or transition failed.
-- `LOCAL_WORKER_STARTED failed`: check `npm run worker`, `LOCAL_WORKER_URL`, and `LOCAL_WORKER_SECRET`.
-- `CLAUDE_STARTED failed`: check `claude auth status` and confirm no metered API env vars are being used.
-- `PREVIEW_DEPLOYED` URL 404: confirm Pages is configured to branch `gh-pages` root and wait for Pages propagation.
-- `N8N_CALLBACK_SENT failed`: confirm tunnel is still running and `N8N_CALLBACK_SECRET` matches in `.env`.
-- `TRANSCRIPT_PARSED failed`: check local worker health and local `claude auth status`.
-- `ACTION_PLAN_CREATED failed`: Claude did not return valid structured JSON.
-- `JIRA_UPDATES_STARTED failed`: check Jira auth and project permissions.
-- Standup Slack reply missing: check `SLACK_BOT_TOKEN`, channel membership, and the original thread timestamp.
+```powershell
+claude mcp list
+```
 
-## Observability
+The local worker currently fails explicitly at `figma_mcp_auth` if `claude mcp list` does not show Figma.
 
-Major stages are logged without secrets:
+## Local Worker
+
+Start:
+
+```powershell
+npm run worker:start
+```
+
+Health:
+
+```powershell
+Invoke-WebRequest http://127.0.0.1:8787/healthz
+```
+
+Stop:
+
+```powershell
+npm run worker:stop
+```
+
+n8n reaches the worker from Docker through:
 
 ```text
-SLACK_RECEIVED
-STANDUP_RECEIVED
-TRANSCRIPT_PARSED
-JIRA_ISSUES_RESOLVED
-ACTION_PLAN_CREATED
-JIRA_UPDATES_STARTED
-JIRA_UPDATES_COMPLETED
-SLACK_SUMMARY_SENT
-JIRA_LOOKUP
-JIRA_CREATED
+LOCAL_WORKER_URL=http://host.docker.internal:8787
+```
+
+The worker strips `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, and `ANTHROPIC_AUTH_TOKEN` from the Claude child process so the local `claude.ai` Pro session is used instead of metered API credentials.
+
+The worker invokes Claude Code with a constrained prompt and allowed tools for Figma MCP. It does not run git, create branches, commit, push, open PRs, publish previews, update Jira, or send Slack messages.
+
+## Persistence
+
+n8n workflow static data stores:
+
+```json
+{
+  "figmaHandoffs": {
+    "<file_key>:<version_id>": {
+      "status": "processing | figma_succeeded | completed | jira_failed | failed",
+      "jiraIssueKey": "SYSCO-1",
+      "design": {
+        "url": "https://www.figma.com/design/...",
+        "fileKey": "...",
+        "nodeId": "..."
+      },
+      "slack": {
+        "channel": "C0BP62TK3PD",
+        "threadTs": "..."
+      }
+    }
+  },
+  "figmaDesignMappings": {
+    "SYSCO-1": {
+      "figmaDesignFileKey": "...",
+      "figmaDesignUrl": "https://www.figma.com/design/..."
+    }
+  }
+}
+```
+
+Idempotency key:
+
+```text
+file_key + version_id
+```
+
+Completed duplicate events are ignored. In-progress duplicates are ignored. If Figma succeeded but Jira failed, a duplicate event retries Jira using the preserved Figma Design URL instead of invoking Claude again.
+
+## Status Messages
+
+Expected Slack thread:
+
+```text
+Parent:
+Figma design handoff started for SYSCO-1
+
+Replies:
+Jira issue SYSCO-1 verified.
+Figma Make source resolved.
+Accessing the latest Figma Make prototype.
+Converting the current prototype into editable Figma Design layers.
+Editable Figma Design created successfully.
+Updating SYSCO-1 with the new Figma Design.
+Design handoff complete for SYSCO-1
+```
+
+Failure replies are posted in the same thread when a thread exists. Errors are redacted and do not include tokens, passcodes, or authorization headers.
+
+## Tests
+
+Mocked deterministic validation:
+
+```powershell
+npm run validate:workflows
+npm run test:figma
+```
+
+The mocked tests cover:
+
+- Jira key parsing from Figma version metadata
+- webhook passcode validation
+- event filtering
+- Slack parent/thread timestamp propagation
+- Slack reply formatting
+- Claude JSON parsing
+- Figma destination mapping
+- idempotency
+- Jira retry behavior
+- error handling
+
+Synthetic webhook test against n8n:
+
+```powershell
+npm run figma:webhook:test -- --issue SYSCO-1
+```
+
+Direct local worker boundary test:
+
+```powershell
+npm run figma:worker:invoke -- --issue SYSCO-1 --file-key <Figma Make file key>
+```
+
+Mocked tests do not prove real Figma MCP end-to-end success.
+
+## Real Demo Procedure
+
+Prerequisites:
+
+- Existing Jira issue `SYSCO-1`
+- Slack app in channel `C0BP62TK3PD`
+- Figma Make project shared with the authenticated Figma/Claude user
+- Claude Code authenticated
+- Figma MCP configured and connected in `claude mcp list`
+- n8n active with current tunnel URL
+- local worker running
+
+Procedure:
+
+1. Start tunnel and n8n.
+2. Import and activate the n8n workflow.
+3. Start the local worker.
+4. Register the Figma webhook if not already registered.
+5. In Figma Make, update the prototype.
+6. Create a named version:
+
+```text
+SYSCO-1 | Ready for Design
+```
+
+Expected:
+
+1. Figma sends `FILE_VERSION_UPDATE`.
+2. n8n validates passcode and event type.
+3. n8n verifies Jira issue `SYSCO-1`.
+4. n8n creates one Slack parent message.
+5. n8n posts progress replies in that thread.
+6. n8n invokes the local Claude worker.
+7. Claude Code connects to Figma MCP.
+8. Claude Code accesses Figma Make context/resources.
+9. Claude Code renders/accesses the current Make prototype.
+10. `generate_figma_design` creates editable Figma Design layers.
+11. Worker returns Figma Design JSON to n8n.
+12. n8n persists the Jira -> Figma Design mapping.
+13. n8n updates Jira.
+14. n8n posts final Slack completion in the same thread.
+
+Acceptance after a real run:
+
+1. Open Slack channel `C0BP62TK3PD`.
+2. Confirm exactly one parent workflow message exists for this handoff.
+3. Confirm progress events are replies in the same thread.
+4. Open Jira issue `SYSCO-1`.
+5. Confirm the issue was updated with the Figma Design URL and source version.
+6. Open the Figma Design link.
+7. Confirm editable Figma layers exist.
+8. Confirm the design matches the ready Figma Make state.
+9. Change the prototype again in Figma Make.
+10. Create a second named version for `SYSCO-1`.
+11. Confirm a new Slack thread is created for the new version.
+12. Confirm the Jira-specific Design file is reused where supported.
+13. Confirm the new Design capture reflects the updated Make state.
+
+## Failure Stages
+
+The workflow logs these stages without secrets:
+
+```text
+FIGMA_WEBHOOK_RECEIVED
+FIGMA_WEBHOOK_REJECTED
+VERSION_ACCEPTED
+FIGMA_VERSION_DUPLICATE
 JIRA_VALIDATED
-JIRA_UPDATED
-LOCAL_WORKER_STARTED
+SLACK_PARENT_CREATED
+FIGMA_SOURCE_RESOLVED
 CLAUDE_STARTED
-CODE_CHANGED
-BUILD_PASSED
-PR_CREATED
-PREVIEW_DEPLOYED
-N8N_CALLBACK_SENT
+figma_mcp_auth
+figma_make_context
+figma_render
+generate_figma_design
+figma_capture
+figma_design_created
 CALLBACK_RECEIVED
 JIRA_COMPLETED
 SLACK_COMPLETED
 ```
 
-Use the correlation ID shown in Slack, Jira comments, n8n execution logs, local worker logs, and PR metadata to follow one request end to end.
+Troubleshooting:
+
+- Invalid Figma secret: confirm `FIGMA_WEBHOOK_PASSCODE` matches the webhook registration.
+- Wrong event type: only `FILE_VERSION_UPDATE` is accepted for handoff.
+- Missing Jira key: put `SYSCO-<number>` in the version label or description.
+- Invalid Jira issue: confirm the issue exists in project `SYSCO`.
+- Slack parent failure: confirm `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, and channel membership.
+- `figma_mcp_auth`: run `claude mcp list`; install/authenticate the Figma MCP server.
+- `figma_make_context`: confirm Claude/Figma user can access the Make project.
+- `figma_render`: provide `FIGMA_MAKE_URL` or `FIGMA_MAKE_PUBLISHED_URL` if the worker cannot render from file key alone.
+- `generate_figma_design`: confirm remote Figma MCP supports Code to Canvas for Claude Code and the destination file is editable.
+- `JIRA_COMPLETED`: Jira failed after Figma succeeded; rerun the same version event to retry Jira without regenerating design.
+- Missing final Slack reply: Slack failures are logged but do not roll back successful Jira/Figma work.
+
+## References
+
+- Figma webhooks overview and retry behavior: `https://developers.figma.com/docs/rest-api/webhooks/`
+- Figma webhook endpoints: `https://developers.figma.com/docs/rest-api/webhooks-endpoints/`
+- Figma `FILE_VERSION_UPDATE` payload: `https://developers.figma.com/docs/rest-api/webhooks-events/`
+- Figma MCP server guide: `https://help.figma.com/hc/en-us/articles/32132100833559-Guide-to-the-Figma-MCP-server`
+- Claude Code Figma MCP setup: `https://help.figma.com/hc/en-us/articles/39888612464151-Claude-Code-and-Figma-Set-up-the-MCP-server`
+- Figma MCP Code to Canvas / `generate_figma_design`: `https://developers.figma.com/docs/figma-mcp-server/code-to-canvas/`

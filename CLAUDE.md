@@ -1,30 +1,26 @@
 # Claude Code Instructions
 
-Follow the repository rules in `AGENTS.md`.
+This repository contains a rapid prototype automation for autonomous Figma Make to editable Figma Design handoff.
 
-This repository contains a small foodservice purchasing and order-management prototype used to demonstrate a Slack -> n8n -> Jira -> GitHub Actions -> Claude Code automation loop.
+Runtime handoff responsibility:
 
-## Prototype Scope
+- Use Claude Code as the Figma MCP execution agent.
+- Treat Figma Make as the authoritative prototype source.
+- Access Figma Make context/resources and the current rendered Make prototype state.
+- Use Figma MCP Code to Canvas / `generate_figma_design` to create or update editable Figma Design layers.
+- Return strict JSON to the local worker.
 
-- Keep the app intentionally small and demo-friendly.
-- Preserve the current FoodPro/Sysco-inspired visual language: blue navigation, green primary actions, white operational panels, dense catalog/order-management layout, and Arial/Helvetica-style typography.
-- Make the smallest coherent change requested by the Jira/Slack context.
-- Do not redesign unrelated screens.
-- Do not create unrelated operational workflows outside foodservice purchasing.
+Do not modify repository source code during runtime Figma handoffs.
+Do not create commits, branches, PRs, GitHub Actions runs, or preview deployments.
+Do not update Jira or Slack; n8n owns those integrations.
+Do not modify the Figma Make source.
+Do not create screenshot-only handoff artifacts.
 
-## Validation
+Useful local validation:
 
-Use the repository npm scripts:
-
-```bash
-npm ci
-npm run build
+```powershell
+npm run validate:workflows
+npm run test:figma
+claude auth status
+claude mcp list
 ```
-
-There is no separate lint or test command unless one is added later.
-
-## Git
-
-Automated prototype changes must happen on an issue branch named `prototype/<SYSCO-issue-key>`.
-
-Never push prototype implementation changes directly to `main`. Commit the focused change, push the issue branch, and create or update a Pull Request to `main`.

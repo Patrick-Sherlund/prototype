@@ -1,62 +1,73 @@
-# Foodservice Prototype Automation POC
+# Figma Make Design Handoff Automation
 
-This repo contains a small Sysco-themed foodservice ordering prototype and the automation scaffolding for:
+Rapid prototype automation for:
 
 ```text
-Slack -> n8n -> Jira -> local Claude Code worker -> GitHub branch/PR/preview -> Jira -> Slack
+Figma Make named version
+  -> Figma FILE_VERSION_UPDATE webhook
+  -> n8n
+  -> one threaded Slack status conversation
+  -> local Claude Code worker
+  -> Figma MCP generate_figma_design
+  -> editable Figma Design
+  -> Jira update
+  -> final Slack thread reply
 ```
 
-Slack requests may reference an existing `SYSCO-<number>` Jira issue, reference a missing key, or omit the key entirely. When a Jira issue must be created, the workflow lets Jira assign the real key and uses that key for the branch, PR, preview, completion update, and Slack reply.
+## Responsibilities
 
-Standup messages beginning with `STANDUP` use a second independent Jira-management workflow. `STANDUP DRY RUN` analyzes proposed Jira updates without mutating Jira. This path does not invoke the prototype coding worker, create branches, open PRs, or publish previews.
+- Figma Make: source of truth for the prototype.
+- n8n: deterministic orchestration, idempotency, Jira, and Slack.
+- Claude Code: Figma MCP execution agent only.
+- Figma Design: downstream editable handoff artifact.
+- Jira: work tracking and traceability.
+- Slack: workflow visibility in one status thread per handoff.
 
-## Prototype
+Slack is not the trigger. GitHub Actions, repository code generation, PR creation, and preview deployment are no longer part of the product workflow.
 
-```powershell
-npm ci
-npm run dev
-npm run build
-npm run preview
-npm run worker
-npm run worker:start
-npm run worker:stop
-```
-
-Local preview defaults to `http://127.0.0.1:5173/`.
-
-## n8n
+## Quick Start
 
 ```powershell
 Copy-Item .env.example .env
-# Fill .env with local secrets and tunnel URL.
+# Fill .env with Figma, Jira, Slack, n8n, and local worker values.
 npm run build:workflows
-npm run test:standup
+npm run test:figma
 docker compose up -d
 .\automation\scripts\import-n8n-workflows.ps1
 npm run worker:start
 ```
 
-Health:
-
-```powershell
-Invoke-WebRequest http://localhost:5678/healthz
-```
-
-Start a free HTTPS tunnel for Slack/GitHub callbacks:
+Start a public tunnel for Figma webhooks:
 
 ```powershell
 docker compose --profile tunnel up -d cloudflared
 docker compose logs -f cloudflared
 ```
 
-Stop:
+Register the Figma webhook after `N8N_WEBHOOK_URL`, `FIGMA_ACCESS_TOKEN`, `FIGMA_WEBHOOK_PASSCODE`, and `FIGMA_MAKE_FILE_KEY` are configured:
 
 ```powershell
-docker compose down
+npm run figma:webhook:register
 ```
 
-## Documentation
+## Endpoints
 
-Full setup and demo procedure:
+- Figma webhook: `<N8N_WEBHOOK_URL>/webhook/poc/figma/version-update`
+- Worker callback: `<N8N_WEBHOOK_URL>/webhook/poc/figma/handoff/completion`
+- Local worker health: `http://127.0.0.1:8787/healthz`
+
+## Validation
+
+```powershell
+npm run validate:workflows
+npm run test:figma
+npm run figma:webhook:test -- --issue SYSCO-1
+claude auth status
+claude mcp list
+```
+
+The mocked tests validate orchestration logic only. Real acceptance requires a real Figma Make named version, Claude Code authenticated to Figma MCP, editable layers in the resulting Figma Design, Jira updated, and one Slack parent thread with replies.
+
+Detailed setup and demo procedure:
 
 [docs/poc-workflow.md](docs/poc-workflow.md)
