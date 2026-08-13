@@ -25,9 +25,11 @@ const claudeCommand = resolveClaudeCommand();
 const claudeMaxTurns = env('FIGMA_CLAUDE_MAX_TURNS', env('CLAUDE_MAX_TURNS', '16'));
 const figmaAllowedTools = env(
   'FIGMA_CLAUDE_ALLOWED_TOOLS',
-  'mcp__figma__*,Read,LS,Bash(npx playwright:*),Bash(npm exec playwright:*)',
+  'mcp__figma__*,mcp__playwright__*,Read,LS,Bash(npx playwright:*),Bash(npm exec playwright:*)',
 );
 const figmaTimeoutMs = Number(env('FIGMA_HANDOFF_TIMEOUT_MS', '1200000'));
+const playwrightMcpConfig = buildPlaywrightMcpConfig();
+const timedOutProcesses = new Set();
 
 let activeJob = null;
 
@@ -98,6 +100,7 @@ async function runFigmaHandoffJob(job) {
   const log = (message) => appendFileSync(logPath, `${new Date().toISOString()} ${redact(message)}\n`);
 
   try {
+    writeFileSync(join(runDir, 'handoff-input.json'), redact(JSON.stringify(job, null, 2)), 'utf8');
     log(`CLAUDE_STARTED jira=${job.jira_key} correlation=${job.correlation_id} handoff=${job.handoff_id}`);
 
     state.stage = 'figma_mcp_auth';
@@ -105,7 +108,9 @@ async function runFigmaHandoffJob(job) {
 
     state.stage = 'figma_capture';
     const promptPath = join(runDir, 'claude-figma-handoff-prompt.md');
+    const mcpConfigPath = join(runDir, 'claude-mcp-config.json');
     writeFileSync(promptPath, buildClaudeFigmaPrompt(job), 'utf8');
+    writeFileSync(mcpConfigPath, playwrightMcpConfig, 'utf8');
 
     const claude = await runCommand(
       claudeCommand,
@@ -113,6 +118,8 @@ async function runFigmaHandoffJob(job) {
         '-p',
         '--max-turns',
         claudeMaxTurns,
+        '--mcp-config',
+        mcpConfigPath,
         '--allowedTools',
         figmaAllowedTools,
         '--output-format',
@@ -128,6 +135,8 @@ async function runFigmaHandoffJob(job) {
         log,
       },
     );
+    writeFileSync(join(runDir, 'claude-stdout.json'), redact(claude.stdout || ''), 'utf8');
+    writeFileSync(join(runDir, 'claude-stderr.txt'), redact(claude.stderr || ''), 'utf8');
 
     state.claudeResult = claude.code === 0 ? 'success' : 'failure';
     if (claude.code !== 0) {
@@ -136,6 +145,7 @@ async function runFigmaHandoffJob(job) {
     }
 
     const resultText = extractClaudeResultText(claude);
+    writeFileSync(join(runDir, 'claude-result.txt'), redact(resultText), 'utf8');
     const result = normalizeClaudeFigmaResult(resultText, job);
     if (!result.success) {
       throw stageError(result.stage, result.error);
@@ -332,7 +342,8 @@ function runCommand(command, args, options = {}) {
     if (options.stdin) child.stdin.end(options.stdin);
 
     const timer = setTimeout(() => {
-      child.kill('SIGTERM');
+      timedOutProcesses.add(child.pid);
+      killProcessTree(child.pid, options.log);
       stderr = append(stderr, `\nTimed out after ${options.timeoutMs}ms`);
     }, options.timeoutMs || 120_000);
 
@@ -340,7 +351,9 @@ function runCommand(command, args, options = {}) {
       clearTimeout(timer);
       const duration = Date.now() - started;
       options.log?.(`${command} ${redactArgs(args).join(' ')} exit=${code} durationMs=${duration}`);
-      resolve({ code: code ?? 1, stdout: redact(stdout), stderr: redact(stderr) });
+      const finalCode = timedOutProcesses.has(child.pid) ? 124 : (code ?? 1);
+      timedOutProcesses.delete(child.pid);
+      resolve({ code: finalCode, stdout: redact(stdout), stderr: redact(stderr) });
     });
 
     child.on('error', (error) => {
@@ -349,6 +362,23 @@ function runCommand(command, args, options = {}) {
       resolve({ code: 1, stdout, stderr: redact(error.message) });
     });
   });
+}
+
+function killProcessTree(pid, log) {
+  if (!pid) return;
+  if (process.platform === 'win32') {
+    const killer = spawn('taskkill.exe', ['/pid', String(pid), '/t', '/f'], {
+      windowsHide: true,
+      stdio: 'ignore',
+    });
+    killer.on('error', (error) => log?.(`taskkill failed for pid=${pid}: ${error.message}`));
+    return;
+  }
+  try {
+    process.kill(pid, 'SIGTERM');
+  } catch (error) {
+    log?.(`process kill failed for pid=${pid}: ${error.message}`);
+  }
 }
 
 function wrapWindowsCommand(command, args, options) {
@@ -391,7 +421,10 @@ function redactArgs(args) {
 }
 
 function redact(value) {
-  let text = safeError(value);
+  let text = String(value || '')
+    .replace(/sk-ant-[A-Za-z0-9._-]+/g, '[redacted-token]')
+    .replace(/gh[pousr]_[A-Za-z0-9_]+/g, '[redacted-token]')
+    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[redacted-email]');
   for (const secret of [
     workerSecret,
     callbackSecret,
@@ -446,6 +479,31 @@ function resolveClaudeCommand() {
     }
   }
   return 'claude';
+}
+
+function buildPlaywrightMcpConfig() {
+  const config = {
+    mcpServers: {
+      playwright: {
+        type: 'stdio',
+        command: env('PLAYWRIGHT_MCP_COMMAND', 'npx'),
+        args: [
+          '-y',
+          env('PLAYWRIGHT_MCP_PACKAGE', '@playwright/mcp@latest'),
+          '--headless',
+          '--browser',
+          env('PLAYWRIGHT_MCP_BROWSER', 'chrome'),
+          '--output-dir',
+          env('PLAYWRIGHT_MCP_OUTPUT_DIR', '.automation/playwright-mcp'),
+          '--timeout-navigation',
+          env('PLAYWRIGHT_MCP_TIMEOUT_NAVIGATION', '90000'),
+          '--timeout-action',
+          env('PLAYWRIGHT_MCP_TIMEOUT_ACTION', '10000'),
+        ],
+      },
+    },
+  };
+  return env('PLAYWRIGHT_MCP_CONFIG_JSON', JSON.stringify(config));
 }
 
 function safeCompare(expected, provided) {

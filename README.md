@@ -9,6 +9,7 @@ Figma Make named version
   -> one threaded Slack status conversation
   -> local Claude Code worker
   -> Figma MCP generate_figma_design
+     + runtime Playwright MCP browser rendering when needed
   -> editable Figma Design
   -> Jira update
   -> final Slack thread reply
@@ -64,6 +65,7 @@ npm run test:figma
 npm run figma:webhook:test -- --issue SYSCO-1
 claude auth status
 claude mcp list
+npx -y @playwright/mcp@latest --help
 ```
 
 The mocked tests validate orchestration logic only. Real acceptance requires a real Figma Make named version, Claude Code authenticated to Figma MCP, editable layers in the resulting Figma Design, Jira updated, and one Slack parent thread with replies.

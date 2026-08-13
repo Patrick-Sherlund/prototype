@@ -39,6 +39,13 @@ function markHandoff(handoffId, patch) {
   };
 }
 
+function getHandoff(handoffId) {
+  if (!handoffId) return {};
+  const staticData = $getWorkflowStaticData('global');
+  staticData.figmaHandoffs = staticData.figmaHandoffs || {};
+  return staticData.figmaHandoffs[handoffId] || {};
+}
+
 const item = $input.first();
 const headers = item.json.headers || {};
 const rawBody = rawBodyFrom(item);
@@ -65,6 +72,8 @@ const correlationId = clean(payload.correlationId || payload.correlation_id || '
 const slackChannelId = clean(payload.slackChannel || payload.slack_channel_id || env('SLACK_CHANNEL_ID') || '', 100);
 const slackThreadTs = clean(payload.slackThreadTs || payload.slack_thread_ts || '', 100);
 const success = payload.success === true || payload.status === 'success';
+const existing = getHandoff(handoffId);
+const finalAlreadyPosted = Boolean(existing.slack?.finalPostedAt);
 
 const common = {
   ackStatusCode: 200,
@@ -92,7 +101,7 @@ if (!success) {
     slack: { channel: slackChannelId, threadTs: slackThreadTs },
   });
   console.log(JSON.stringify({ stage: 'CALLBACK_RECEIVED', correlationId, handoffId, status: 'failure', failureStage }));
-  return [{ json: { ...common, requestFailed: true, failureStage, errorMessage, figmaReady: false, claudeSuccess: false } }];
+  return [{ json: { ...common, requestFailed: true, failureStage, errorMessage, figmaReady: false, claudeSuccess: false, finalAlreadyPosted } }];
 }
 
 const figmaDesignUrl = clean(design.url || payload.figmaDesignUrl || payload.figma_design_url, 2000);
@@ -105,7 +114,7 @@ if (!figmaDesignUrl) {
     errorMessage,
     slack: { channel: slackChannelId, threadTs: slackThreadTs },
   });
-  return [{ json: { ...common, requestFailed: true, failureStage, errorMessage, figmaReady: false, claudeSuccess: false } }];
+  return [{ json: { ...common, requestFailed: true, failureStage, errorMessage, figmaReady: false, claudeSuccess: false, finalAlreadyPosted } }];
 }
 
 const normalizedDesign = {

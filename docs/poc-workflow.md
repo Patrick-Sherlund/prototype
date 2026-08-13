@@ -23,7 +23,7 @@ Local n8n Community Edition
   v
 Local Claude Code worker on Windows host
   |
-  | Claude Code + Figma MCP
+  | Claude Code + Figma MCP + runtime Playwright MCP when browser rendering is needed
   |  - access Figma Make context/resources
   |  - render/access current Make prototype
   |  - run generate_figma_design / Code to Canvas
@@ -83,6 +83,7 @@ Copy `.env.example` to `.env` and fill in local values. Do not commit `.env`.
 | `FIGMA_CLAUDE_MAX_TURNS` | No | Claude turn budget for the handoff |
 | `FIGMA_HANDOFF_TIMEOUT_MS` | No | Worker timeout for the Claude/Figma operation |
 | `FIGMA_CLAUDE_ALLOWED_TOOLS` | No | Claude tools allowed for Figma MCP handoff |
+| `PLAYWRIGHT_MCP_*` | No | Optional browser MCP settings injected by the worker for rendering authenticated Make pages |
 
 Generate local shared secrets:
 
@@ -295,6 +296,18 @@ claude mcp list
 
 The local worker currently fails explicitly at `figma_mcp_auth` if `claude mcp list` does not show Figma.
 
+## Browser Rendering
+
+Some Figma MCP Code to Canvas paths need a rendered browser page, especially when the input is an authenticated `figma.com/make/...` editor URL instead of a published public URL. The worker injects Playwright MCP into each Claude run with `--mcp-config`; it does not require a committed project `.mcp.json` or an interactive project approval.
+
+Default runtime command:
+
+```powershell
+npx -y @playwright/mcp@latest --headless --browser chrome --output-dir .automation/playwright-mcp
+```
+
+The generated browser artifacts stay under `.automation/`, which is ignored by git.
+
 ## Local Worker
 
 Start:
@@ -323,7 +336,7 @@ LOCAL_WORKER_URL=http://host.docker.internal:8787
 
 The worker strips `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, and `ANTHROPIC_AUTH_TOKEN` from the Claude child process so the local `claude.ai` Pro session is used instead of metered API credentials.
 
-The worker invokes Claude Code with a constrained prompt and allowed tools for Figma MCP. It does not run git, create branches, commit, push, open PRs, publish previews, update Jira, or send Slack messages.
+The worker invokes Claude Code with a constrained prompt and allowed tools for Figma MCP plus Playwright MCP. It does not run git, create branches, commit, push, open PRs, publish previews, update Jira, or send Slack messages.
 
 ## Persistence
 
@@ -510,7 +523,7 @@ Troubleshooting:
 - Slack parent failure: confirm `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, and channel membership.
 - `figma_mcp_auth`: run `claude mcp list`; install/authenticate the Figma MCP server.
 - `figma_make_context`: confirm Claude/Figma user can access the Make project.
-- `figma_render`: provide `FIGMA_MAKE_URL` or `FIGMA_MAKE_PUBLISHED_URL` if the worker cannot render from file key alone.
+- `figma_render`: provide `FIGMA_MAKE_URL` or `FIGMA_MAKE_PUBLISHED_URL`, or confirm runtime Playwright MCP can open the authenticated Make page.
 - `generate_figma_design`: confirm remote Figma MCP supports Code to Canvas for Claude Code and the destination file is editable.
 - `JIRA_COMPLETED`: Jira failed after Figma succeeded; rerun the same version event to retry Jira without regenerating design.
 - Missing final Slack reply: Slack failures are logged but do not roll back successful Jira/Figma work.

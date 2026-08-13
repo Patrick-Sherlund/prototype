@@ -37,15 +37,21 @@ export function buildClaudeFigmaPrompt(job) {
     'Task:',
     '1. Connect to the configured Figma MCP server.',
     '2. Use Figma MCP whoami or an equivalent tool when available to confirm Figma MCP authentication.',
-    '3. Access the Figma Make project identified by the supplied file information.',
-    '4. Use available Make resources/context to confirm the correct project is being processed.',
-    '5. Access or render the current Figma Make prototype. Prefer the supplied Make or published URL when browser rendering is required.',
-    '6. Use the current rendered Make interface as the visual source.',
-    '7. Use Figma MCP Code to Canvas / generate_figma_design to convert the current interface into editable Figma Design layers.',
-    '8. Send the resulting editable layers to the configured Jira-specific Figma Design file when supplied.',
-    '9. If no destination exists, create an appropriate Jira-specific Figma Design file when supported.',
-    '10. Associate the handoff with the Jira issue key, Make file, Make version, version label, and capture timestamp.',
-    '11. Return strict machine-readable JSON only.',
+    '3. Inspect the Figma MCP tool list and use only supported Figma MCP tools.',
+    '4. Access the Figma Make project identified by the supplied file information.',
+    '5. Use available Make resources/context to confirm the correct project is being processed.',
+    '6. Access or render the current Figma Make prototype. Prefer the supplied Make or published URL when browser rendering is required.',
+    '7. Use the current rendered Make interface as the visual source.',
+    '8. Use Figma MCP Code to Canvas / generate_figma_design to convert the current interface into editable Figma Design layers.',
+    '9. Send the resulting editable layers to the configured Jira-specific Figma Design file when supplied.',
+    '10. If no destination exists, create an appropriate Jira-specific Figma Design file when supported.',
+    '11. Associate the handoff with the Jira issue key, Make file, Make version, version label, and capture timestamp.',
+    '12. Return strict machine-readable JSON only.',
+    '',
+    'Stop condition:',
+    '- If the available Figma MCP tools cannot access Figma Make, cannot render the Make prototype, or do not expose Code to Canvas / generate_figma_design, stop immediately and return the failure JSON.',
+    '- Do not keep retrying equivalent tool calls after one clear unsupported, unauthorized, or unavailable result.',
+    '- Do not spend turns researching alternatives outside Figma MCP and the supplied Make URL.',
     '',
     'Do not:',
     '- Modify repository source code.',
@@ -103,6 +109,14 @@ export function parseJsonObject(text) {
   try {
     return JSON.parse(withoutFence);
   } catch {
+    for (const candidate of balancedJsonCandidates(withoutFence)) {
+      try {
+        return JSON.parse(candidate);
+      } catch {
+        // Keep looking for a later balanced object. Claude sometimes wraps
+        // diagnostics around the object even when instructed not to.
+      }
+    }
     const start = withoutFence.indexOf('{');
     const end = withoutFence.lastIndexOf('}');
     if (start >= 0 && end > start) return JSON.parse(withoutFence.slice(start, end + 1));
@@ -111,7 +125,18 @@ export function parseJsonObject(text) {
 }
 
 export function normalizeClaudeFigmaResult(text, job) {
-  const parsed = parseJsonObject(text);
+  let parsed;
+  try {
+    parsed = parseJsonObject(text);
+  } catch (error) {
+    return {
+      success: false,
+      jiraKey: String(job.jira_key || '').toUpperCase(),
+      stage: inferFailureStage(text),
+      error: safeError(`Claude Code did not return valid handoff JSON. Output: ${String(text || error.message || '').slice(0, 900)}`),
+    };
+  }
+
   const jiraKey = String(parsed.jiraKey || parsed.jira_key || job.jira_key || '').toUpperCase();
   if (parsed.success === false) {
     return {
@@ -148,6 +173,42 @@ export function normalizeClaudeFigmaResult(text, job) {
       nodeId: String(design.nodeId || design.node_id || parsed.figmaDesignNodeId || parsed.figma_design_node_id || ''),
     },
   };
+}
+
+export function balancedJsonCandidates(text) {
+  const value = String(text || '');
+  const candidates = [];
+  for (let start = value.indexOf('{'); start >= 0; start = value.indexOf('{', start + 1)) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = start; index < value.length; index += 1) {
+      const char = value[index];
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (char === '\\') {
+          escaped = true;
+        } else if (char === '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (char === '"') {
+        inString = true;
+      } else if (char === '{') {
+        depth += 1;
+      } else if (char === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          candidates.push(value.slice(start, index + 1));
+          break;
+        }
+      }
+    }
+  }
+  return candidates;
 }
 
 export function normalizeStage(stage) {

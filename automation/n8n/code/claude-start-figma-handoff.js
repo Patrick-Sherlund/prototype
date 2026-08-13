@@ -1,4 +1,6 @@
 const env = (name) => $env[name];
+const https = require('https');
+const http = require('http');
 
 function requiredEnv(names) {
   const missing = names.filter((name) => !env(name));
@@ -21,7 +23,7 @@ function markHandoff(input, patch) {
 }
 
 async function postWorker(url, payload) {
-  const response = await fetch(url, {
+  const response = await httpRequest(url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -30,7 +32,7 @@ async function postWorker(url, payload) {
     },
     body: JSON.stringify(payload),
   });
-  const text = await response.text();
+  const text = response.bodyText;
   let data = {};
   if (text) {
     try {
@@ -43,6 +45,42 @@ async function postWorker(url, payload) {
     throw new Error(`Local Claude worker start failed (${response.status}): ${text.slice(0, 700)}`);
   }
   return data;
+}
+
+async function httpRequest(url, options = {}) {
+  if (typeof fetch === 'function') {
+    const response = await fetch(url, options);
+    return {
+      status: response.status,
+      ok: response.ok,
+      bodyText: await response.text(),
+    };
+  }
+
+  const method = options.method || 'GET';
+  const body = options.body || '';
+  const headers = { ...(options.headers || {}) };
+  if (body && !headers['Content-Length']) headers['Content-Length'] = Buffer.byteLength(body);
+  const client = url.startsWith('https:') ? https : http;
+
+  return await new Promise((resolve, reject) => {
+    const request = client.request(url, { method, headers }, (response) => {
+      const chunks = [];
+      response.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+      response.on('end', () => {
+        const status = response.statusCode || 0;
+        resolve({
+          status,
+          ok: status >= 200 && status < 300,
+          bodyText: Buffer.concat(chunks).toString('utf8'),
+        });
+      });
+    });
+    request.on('error', reject);
+    request.setTimeout(30000, () => request.destroy(new Error(`HTTP ${method} ${url} timed out`)));
+    if (body) request.write(body);
+    request.end();
+  });
 }
 
 const input = $input.first().json;

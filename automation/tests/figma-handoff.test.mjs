@@ -232,6 +232,43 @@ async function testCallbackAndDestinationMapping() {
   );
   assert.equal(resolved[0].json.figmaDestinationFromMapping, true);
   assert.equal(resolved[0].json.figmaDestinationFileKey, 'DESIGN14');
+
+  const duplicateFailure = await runCode(
+    'figma-callback-verify.js',
+    {
+      headers: { 'x-poc-callback-secret': 'callback-secret' },
+      body: {
+        success: false,
+        jiraKey: 'SYSCO-14',
+        correlationId: 'SYSCO-14-MAKE-V3',
+        handoffId: 'MAKE:v3',
+        slack_channel_id: 'C0BP62TK3PD',
+        slack_thread_ts: '1710000000.000003',
+        source: {
+          figmaMakeFileKey: 'MAKE',
+          figmaVersionId: 'v3',
+          figmaVersionLabel: 'SYSCO-14 | Ready for Design',
+        },
+        stage: 'figma_render',
+        error: 'browser auth failed',
+      },
+    },
+    {
+      staticData: {
+        figmaHandoffs: {
+          'MAKE:v3': {
+            status: 'failed',
+            slack: {
+              channel: 'C0BP62TK3PD',
+              threadTs: '1710000000.000003',
+              finalPostedAt: new Date().toISOString(),
+            },
+          },
+        },
+      },
+    },
+  );
+  assert.equal(duplicateFailure[0].json.finalAlreadyPosted, true);
 }
 
 async function testClaudeJsonParsing() {
@@ -257,6 +294,27 @@ async function testClaudeJsonParsing() {
     source: { figma_make_file_key: 'MAKE', figma_version_id: 'v1', figma_version_label: '' },
   });
   assert.equal(failure.stage, 'figma_render');
+
+  const wrapped = normalizeClaudeFigmaResult(
+    'I checked the source.\n{"success":true,"jiraKey":"SYSCO-14","source":{"figmaMakeFileKey":"MAKE","figmaVersionId":"v1"},"design":{"url":"https://www.figma.com/design/DESIGN14"}}\nDone.',
+    {
+      jira_key: 'SYSCO-14',
+      source: {
+        figma_make_file_key: 'MAKE',
+        figma_version_id: 'v1',
+        figma_version_label: 'SYSCO-14 | Ready for Design',
+      },
+    },
+  );
+  assert.equal(wrapped.success, true);
+  assert.equal(wrapped.design.url, 'https://www.figma.com/design/DESIGN14');
+
+  const invalid = normalizeClaudeFigmaResult('I could not access the Make project because permission was denied.', {
+    jira_key: 'SYSCO-14',
+    source: { figma_make_file_key: 'MAKE', figma_version_id: 'v1', figma_version_label: '' },
+  });
+  assert.equal(invalid.success, false);
+  assert.equal(invalid.stage, 'figma_make_context');
 }
 
 async function testJiraRetryAndPersistence() {

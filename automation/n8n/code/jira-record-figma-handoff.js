@@ -1,4 +1,6 @@
 const env = (name) => $env[name];
+const https = require('https');
+const http = require('http');
 
 function requiredEnv(names) {
   const missing = names.filter((name) => !env(name));
@@ -27,7 +29,7 @@ function chooseReviewTransition(transitions) {
 
 async function jiraFetch(path, options = {}) {
   const baseUrl = env('JIRA_BASE_URL').replace(/\/$/, '');
-  const response = await fetch(`${baseUrl}${path}`, {
+  const response = await httpRequest(`${baseUrl}${path}`, {
     method: options.method || 'GET',
     headers: {
       Authorization: env('JIRA_AUTH_HEADER'),
@@ -37,7 +39,7 @@ async function jiraFetch(path, options = {}) {
     },
     body: options.body,
   });
-  const text = await response.text();
+  const text = response.bodyText;
   let data = {};
   if (text) {
     try {
@@ -53,6 +55,42 @@ async function jiraFetch(path, options = {}) {
     throw error;
   }
   return data;
+}
+
+async function httpRequest(url, options = {}) {
+  if (typeof fetch === 'function') {
+    const response = await fetch(url, options);
+    return {
+      status: response.status,
+      ok: response.ok,
+      bodyText: await response.text(),
+    };
+  }
+
+  const method = options.method || 'GET';
+  const body = options.body || '';
+  const headers = { ...(options.headers || {}) };
+  if (body && !headers['Content-Length']) headers['Content-Length'] = Buffer.byteLength(body);
+  const client = url.startsWith('https:') ? https : http;
+
+  return await new Promise((resolve, reject) => {
+    const request = client.request(url, { method, headers }, (response) => {
+      const chunks = [];
+      response.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+      response.on('end', () => {
+        const status = response.statusCode || 0;
+        resolve({
+          status,
+          ok: status >= 200 && status < 300,
+          bodyText: Buffer.concat(chunks).toString('utf8'),
+        });
+      });
+    });
+    request.on('error', reject);
+    request.setTimeout(30000, () => request.destroy(new Error(`HTTP ${method} ${url} timed out`)));
+    if (body) request.write(body);
+    request.end();
+  });
 }
 
 function fileKeyFromDesignUrl(url) {
