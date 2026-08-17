@@ -111,6 +111,8 @@ try {
     jira_key: input.jiraIssueKey,
     jira_summary: clean(input.jiraSummary, 1000),
     jira_description: clean(input.jiraDescriptionText, 6000),
+    request_text: clean(input.requestText || input.figmaVersionDescription || '', 3000),
+    trigger_source: clean(input.triggerSource || input.handoffMode || '', 100),
     jira_url: input.jiraIssueUrl,
     correlation_id: input.correlationId,
     handoff_id: input.handoffId,

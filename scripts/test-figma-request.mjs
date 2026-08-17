@@ -6,59 +6,38 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 loadDotEnv(resolve(repoRoot, '.env'));
 
 const args = parseArgs(process.argv.slice(2));
-const webhookEnabled = ['1', 'true', 'yes', 'on'].includes(String(process.env.FIGMA_WEBHOOK_ENABLED || 'false').toLowerCase());
-if (!webhookEnabled && !args.force) {
-  console.log(
-    JSON.stringify(
-      {
-        ok: true,
-        skipped: true,
-        reason: 'FIGMA_WEBHOOK_ENABLED is not true; use --force to send a synthetic webhook anyway.',
-      },
-      null,
-      2,
-    ),
-  );
-  process.exit(0);
-}
-
 const endpoint =
   args.endpoint ||
-  (process.env.N8N_WEBHOOK_URL ? `${process.env.N8N_WEBHOOK_URL.replace(/\/$/, '')}/webhook/poc/figma/version-update` : '');
-const issue = args.issue || 'SYSCO-1';
-const fileKey = args['file-key'] || process.env.FIGMA_MAKE_FILE_KEY || 'synthetic-make-file';
-const versionId = args['version-id'] || `synthetic-${Date.now()}`;
-const label = args.label || `${issue} | Ready for Design`;
+  (process.env.N8N_WEBHOOK_URL ? `${process.env.N8N_WEBHOOK_URL.replace(/\/$/, '')}/webhook/poc/figma/handoff/request` : '');
+const issue = args.issue || 'SYSCO-20';
+const request =
+  args.request ||
+  "Using the existing Figma Make SAR Questionnaire prototype as context, create or update the corresponding Figma Design screen so the intro/start questionnaire area includes a compact 'Estimated time: 8 min' badge near the primary start action. Do not redesign unrelated areas.";
+const makeUrl = args['make-url'] || process.env.FIGMA_MAKE_URL || '';
+const fileKey = args['file-key'] || process.env.FIGMA_MAKE_FILE_KEY || fileKeyFromMakeUrl(makeUrl);
+const requestId = args['request-id'] || `mcp-request-${Date.now()}`;
 
 if (!endpoint) {
   console.error('Missing N8N_WEBHOOK_URL or --endpoint');
   process.exit(1);
 }
-if (!process.env.FIGMA_WEBHOOK_PASSCODE && !args.passcode) {
-  console.error('Missing FIGMA_WEBHOOK_PASSCODE or --passcode');
-  process.exit(1);
-}
 
 const payload = {
-  event_type: args['event-type'] || 'FILE_VERSION_UPDATE',
-  file_key: fileKey,
-  file_name: args['file-name'] || 'Synthetic Figma Make Project',
-  version_id: versionId,
-  label,
-  description: args.description || '',
-  created_at: new Date().toISOString(),
-  timestamp: new Date().toISOString(),
-  triggered_by: {
-    id: 'synthetic',
-    handle: 'Synthetic Tester',
-  },
-  passcode: args.passcode || process.env.FIGMA_WEBHOOK_PASSCODE,
-  webhook_id: 'synthetic',
+  jiraKey: issue,
+  request,
+  requestId,
+  triggerSource: 'manual-test',
+  figmaMakeUrl: makeUrl,
+  figmaMakeFileKey: fileKey,
+  label: `${issue} | MCP Design Request`,
 };
+
+const headers = { 'Content-Type': 'application/json' };
+if (process.env.FIGMA_HANDOFF_REQUEST_SECRET) headers['x-poc-request-secret'] = process.env.FIGMA_HANDOFF_REQUEST_SECRET;
 
 const response = await fetch(endpoint, {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
+  headers,
   body: JSON.stringify(payload),
 });
 
@@ -70,8 +49,8 @@ console.log(
       status: response.status,
       endpoint,
       issue,
-      file_key: fileKey,
-      version_id: versionId,
+      requestId,
+      fileKey,
       response: text.slice(0, 500),
     },
     null,
@@ -80,6 +59,11 @@ console.log(
 );
 
 if (!response.ok) process.exit(1);
+
+function fileKeyFromMakeUrl(url) {
+  const match = String(url || '').match(/figma\.com\/make\/([^/?#]+)/i);
+  return match ? decodeURIComponent(match[1]) : '';
+}
 
 function parseArgs(values) {
   const parsed = {};

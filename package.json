@@ -13,6 +13,7 @@
     "build:workflows": "node automation/n8n/build-workflows.mjs",
     "validate:workflows": "node automation/n8n/build-workflows.mjs --check",
     "test:figma": "node automation/tests/figma-handoff.test.mjs",
+    "figma:request:test": "node scripts/test-figma-request.mjs",
     "figma:webhook:register": "node scripts/register-figma-webhook.mjs",
     "figma:webhook:test": "node scripts/test-webhook.mjs",
     "figma:worker:invoke": "node scripts/invoke-claude-figma-handoff.mjs"

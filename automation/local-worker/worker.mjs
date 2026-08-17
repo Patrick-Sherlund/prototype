@@ -23,12 +23,15 @@ const workerSecret = requiredEnv('LOCAL_WORKER_SECRET');
 const callbackSecret = requiredEnv('N8N_CALLBACK_SECRET');
 const claudeCommand = resolveClaudeCommand();
 const claudeMaxTurns = env('FIGMA_CLAUDE_MAX_TURNS', env('CLAUDE_MAX_TURNS', '16'));
+const figmaPlaywrightEnabled = ['1', 'true', 'yes', 'on'].includes(env('FIGMA_PLAYWRIGHT_ENABLED', 'false').toLowerCase());
 const figmaAllowedTools = env(
   'FIGMA_CLAUDE_ALLOWED_TOOLS',
-  'mcp__figma__*,mcp__playwright__*,Read,LS,Bash(npx playwright:*),Bash(npm exec playwright:*)',
+  figmaPlaywrightEnabled
+    ? 'mcp__figma__*,mcp__playwright__*,Read,LS,Bash(npx playwright:*),Bash(npm exec playwright:*)'
+    : 'mcp__figma__*,Read,LS',
 );
 const figmaTimeoutMs = Number(env('FIGMA_HANDOFF_TIMEOUT_MS', '1200000'));
-const playwrightMcpConfig = buildPlaywrightMcpConfig();
+const playwrightMcpConfig = figmaPlaywrightEnabled ? buildPlaywrightMcpConfig() : '';
 const timedOutProcesses = new Set();
 
 let activeJob = null;
@@ -110,22 +113,22 @@ async function runFigmaHandoffJob(job) {
     const promptPath = join(runDir, 'claude-figma-handoff-prompt.md');
     const mcpConfigPath = join(runDir, 'claude-mcp-config.json');
     writeFileSync(promptPath, buildClaudeFigmaPrompt(job), 'utf8');
-    writeFileSync(mcpConfigPath, playwrightMcpConfig, 'utf8');
+    if (figmaPlaywrightEnabled) writeFileSync(mcpConfigPath, playwrightMcpConfig, 'utf8');
 
+    const claudeArgs = [
+      '-p',
+      '--max-turns',
+      claudeMaxTurns,
+      ...(figmaPlaywrightEnabled ? ['--mcp-config', mcpConfigPath] : []),
+      '--allowedTools',
+      figmaAllowedTools,
+      '--output-format',
+      'json',
+      '--no-session-persistence',
+    ];
     const claude = await runCommand(
       claudeCommand,
-      [
-        '-p',
-        '--max-turns',
-        claudeMaxTurns,
-        '--mcp-config',
-        mcpConfigPath,
-        '--allowedTools',
-        figmaAllowedTools,
-        '--output-format',
-        'json',
-        '--no-session-persistence',
-      ],
+      claudeArgs,
       {
         cwd: repoRoot,
         stdin: readFileSync(promptPath, 'utf8'),
@@ -217,6 +220,10 @@ async function sendCallback(job, state, result, log) {
     stage: result.success ? state.stage : result.stage || state.stage,
     jiraKey: job.jira_key,
     jira_key: job.jira_key,
+    requestText: job.request_text,
+    request_text: job.request_text,
+    triggerSource: job.trigger_source,
+    trigger_source: job.trigger_source,
     correlationId: job.correlation_id,
     correlation_id: job.correlation_id,
     handoffId: job.handoff_id,
@@ -228,6 +235,8 @@ async function sendCallback(job, state, result, log) {
       figmaVersionId: result.source?.figmaVersionId || job.source.figma_version_id,
       figmaVersionLabel: result.source?.figmaVersionLabel || job.source.figma_version_label,
       figmaVersionDescription: job.source.figma_version_description,
+      figmaMakeUrl: job.source.figma_make_url,
+      figmaMakePublishedUrl: job.source.figma_make_published_url,
     },
     design: result.design || {
       url: state.figmaDesignUrl,
@@ -275,6 +284,8 @@ function normalizeFigmaJob(input) {
     jira_key: issue,
     jira_summary: String(input.jira_summary || '').slice(0, 1000),
     jira_description: String(input.jira_description || '').slice(0, 6000),
+    request_text: String(input.request_text || '').slice(0, 3000),
+    trigger_source: String(input.trigger_source || '').slice(0, 100),
     jira_url: String(input.jira_url || ''),
     correlation_id: String(input.correlation_id || ''),
     handoff_id: String(input.handoff_id || ''),
@@ -295,6 +306,7 @@ function normalizeFigmaJob(input) {
       figma_design_file_key: String(destination.figma_design_file_key || ''),
       figma_design_url: String(destination.figma_design_url || ''),
     },
+    browser_rendering_allowed: figmaPlaywrightEnabled,
   };
 }
 

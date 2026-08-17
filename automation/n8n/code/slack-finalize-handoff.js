@@ -62,6 +62,8 @@ function stageLabel(stage) {
   const labels = {
     JIRA_KEY_PARSE: 'Jira key parsing',
     FIGMA_WEBHOOK_VALIDATE: 'Figma webhook validation',
+    FIGMA_REQUEST_VALIDATE: 'Figma request validation',
+    FIGMA_SOURCE_RESOLVED: 'Figma Make source',
     JIRA_VALIDATED: 'Jira issue validation',
     CLAUDE_STARTED: 'Claude Code handoff start',
     figma_mcp_auth: 'Figma MCP authentication',
@@ -79,6 +81,8 @@ function finalText(input) {
   const jiraUrl = input.jiraIssueUrl || `${env('JIRA_BASE_URL')?.replace(/\/$/, '') || ''}/browse/${issueKey}`;
   const figmaUrl = input.figmaDesignUrl || input.design?.url || '';
   const versionLabel = input.figmaVersionLabel || `${input.figmaMakeFileKey || 'Figma Make'} ${input.figmaVersionId || ''}`.trim();
+  const requestText = input.requestText || input.figmaVersionDescription || '';
+  const makeUrl = input.figmaMakeUrl || '';
 
   if (input.requestFailed) {
     if (input.failureStage === 'JIRA_COMPLETED' && figmaUrl) {
@@ -112,6 +116,12 @@ function finalText(input) {
   if (input.figmaReady && input.jiraUpdated) {
     return [
       `Design handoff complete for ${issueKey}`,
+      '',
+      'Request:',
+      requestText,
+      '',
+      'Source prototype:',
+      makeUrl || versionLabel,
       '',
       'Figma Make version:',
       versionLabel,

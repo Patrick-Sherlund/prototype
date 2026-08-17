@@ -33,12 +33,13 @@ async function runSource(source, inputJson, options = {}) {
   const input = { first: () => item };
   const staticData = options.staticData || {};
   const env = {
+    FIGMA_WEBHOOK_ENABLED: 'true',
     FIGMA_WEBHOOK_PASSCODE: 'figma-secret',
     JIRA_PROJECT_KEY: 'SYSCO',
     JIRA_BASE_URL: 'https://jira.example.test',
     JIRA_AUTH_HEADER: 'Basic test',
     SLACK_CHANNEL_ID: 'C0BP62TK3PD',
-    SLACK_BOT_TOKEN: 'xoxb-test',
+    SLACK_BOT_TOKEN: 'test-slack-token',
     LOCAL_WORKER_URL: 'http://worker.test',
     LOCAL_WORKER_SECRET: 'worker-secret',
     N8N_WEBHOOK_URL: 'https://n8n.example.test',
@@ -90,6 +91,44 @@ async function testWebhookValidation() {
   const noKey = await runCode('figma-validate-webhook.js', { body: { ...body, label: 'Ready', description: '' } }, { staticData: {} });
   assert.equal(noKey[0].json.requestFailed, true);
   assert.equal(noKey[0].json.failureStage, 'JIRA_KEY_PARSE');
+
+  const disabled = await runCode('figma-validate-webhook.js', { body }, { staticData: {}, env: { FIGMA_WEBHOOK_ENABLED: 'false', FIGMA_WEBHOOK_PASSCODE: '' } });
+  assert.equal(disabled[0].json.ignored, true);
+  assert.equal(disabled[0].json.ignoreReason, 'figma_webhook_disabled');
+}
+
+async function testRequestValidation() {
+  const staticData = {};
+  const result = await runCode(
+    'figma-validate-request.js',
+    {
+      body: {
+        jiraKey: 'SYSCO-20',
+        requestId: 'mcp-test-1',
+        request: 'Create a compact delivery ETA badge on the recent order cards.',
+        figmaMakeUrl: 'https://www.figma.com/make/MAKE123/Sample-Make',
+      },
+    },
+    { staticData },
+  );
+  assert.equal(result[0].json.shouldProcess, true);
+  assert.equal(result[0].json.handoffMode, 'mcp_request');
+  assert.equal(result[0].json.figmaMakeFileKey, 'MAKE123');
+  assert.equal(result[0].json.requestText, 'Create a compact delivery ETA badge on the recent order cards.');
+  assert.equal(staticData.figmaHandoffs['MAKE123:request:mcp-test-1'].status, 'processing');
+
+  const missingRequest = await runCode(
+    'figma-validate-request.js',
+    {
+      body: {
+        jiraKey: 'SYSCO-20',
+        figmaMakeUrl: 'https://www.figma.com/make/MAKE123/Sample-Make',
+      },
+    },
+    { staticData: {} },
+  );
+  assert.equal(missingRequest[0].json.requestFailed, true);
+  assert.equal(missingRequest[0].json.failureStage, 'FIGMA_REQUEST_VALIDATE');
 }
 
 async function testIdempotencyAndRetry() {
@@ -362,6 +401,7 @@ async function testJiraRetryAndPersistence() {
 }
 
 await testWebhookValidation();
+await testRequestValidation();
 await testIdempotencyAndRetry();
 await testSlackThreadPropagation();
 await testCallbackAndDestinationMapping();

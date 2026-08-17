@@ -74,6 +74,7 @@ const slackThreadTs = clean(payload.slackThreadTs || payload.slack_thread_ts || 
 const success = payload.success === true || payload.status === 'success';
 const existing = getHandoff(handoffId);
 const finalAlreadyPosted = Boolean(existing.slack?.finalPostedAt);
+const requestText = clean(payload.requestText || payload.request_text || existing.requestText || '', 3000);
 
 const common = {
   ackStatusCode: 200,
@@ -85,10 +86,14 @@ const common = {
   correlationId,
   slackChannelId,
   slackThreadTs,
+  requestText,
+  triggerSource: clean(payload.triggerSource || payload.trigger_source || existing.triggerSource || '', 100),
   figmaMakeFileKey: clean(source.figmaMakeFileKey || source.figma_make_file_key, 200),
   figmaVersionId: clean(source.figmaVersionId || source.figma_version_id, 200),
   figmaVersionLabel: clean(source.figmaVersionLabel || source.figma_version_label, 500),
   figmaVersionDescription: clean(source.figmaVersionDescription || source.figma_version_description, 2000),
+  figmaMakeUrl: clean(source.figmaMakeUrl || source.figma_make_url, 2000),
+  figmaMakePublishedUrl: clean(source.figmaMakePublishedUrl || source.figma_make_published_url, 2000),
 };
 
 if (!success) {
@@ -98,6 +103,7 @@ if (!success) {
     status: 'failed',
     failureStage,
     errorMessage,
+    requestText,
     slack: { channel: slackChannelId, threadTs: slackThreadTs },
   });
   console.log(JSON.stringify({ stage: 'CALLBACK_RECEIVED', correlationId, handoffId, status: 'failure', failureStage }));
@@ -112,6 +118,7 @@ if (!figmaDesignUrl) {
     status: 'failed',
     failureStage,
     errorMessage,
+    requestText,
     slack: { channel: slackChannelId, threadTs: slackThreadTs },
   });
   return [{ json: { ...common, requestFailed: true, failureStage, errorMessage, figmaReady: false, claudeSuccess: false, finalAlreadyPosted } }];
@@ -121,17 +128,21 @@ const normalizedDesign = {
   url: figmaDesignUrl,
   fileKey: clean(design.fileKey || design.file_key || payload.figmaDesignFileKey || payload.figma_design_file_key, 200),
   nodeId: clean(design.nodeId || design.node_id || payload.figmaDesignNodeId || payload.figma_design_node_id, 200),
+  creationTool: clean(design.creationTool || design.creation_tool || payload.figmaDesignCreationTool || payload.figma_design_creation_tool, 100),
 };
 
 markHandoff(handoffId, {
   status: 'figma_succeeded',
   jiraIssueKey,
   correlationId,
+  requestText,
   source: {
     figmaMakeFileKey: common.figmaMakeFileKey,
     figmaVersionId: common.figmaVersionId,
     figmaVersionLabel: common.figmaVersionLabel,
     figmaVersionDescription: common.figmaVersionDescription,
+    figmaMakeUrl: common.figmaMakeUrl,
+    figmaMakePublishedUrl: common.figmaMakePublishedUrl,
   },
   design: normalizedDesign,
   slack: { channel: slackChannelId, threadTs: slackThreadTs },
@@ -150,6 +161,7 @@ return [
       figmaDesignUrl: normalizedDesign.url,
       figmaDesignFileKey: normalizedDesign.fileKey,
       figmaDesignNodeId: normalizedDesign.nodeId,
+      figmaDesignCreationTool: normalizedDesign.creationTool,
     },
   },
 ];

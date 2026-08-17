@@ -7,6 +7,7 @@ const code = (name) => readFileSync(join(here, 'code', name), 'utf8');
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 
 const codeFiles = [
+  'figma-validate-request.js',
   'figma-validate-webhook.js',
   'jira-verify-handoff-issue.js',
   'slack-create-handoff-thread.js',
@@ -93,8 +94,11 @@ function connectPairs(pairs) {
 
 const figmaMakeDesignHandoff = {
   id: 'figmaMakeDesignHandoff',
-  name: 'Figma Make Version to Design Handoff',
+  name: 'Figma MCP Request to Design Handoff',
   nodes: [
+    webhookNode('figma-request-webhook', 'Figma MCP Request Webhook', 'poc/figma/handoff/request', [0, -300]),
+    codeNode('figma-validate-request', 'Figma - Validate MCP Request', code('figma-validate-request.js'), [260, -300]),
+    respondNode('respond-to-request', 'Respond to Request', [520, -300]),
     webhookNode('figma-version-webhook', 'Figma Version Webhook', 'poc/figma/version-update', [0, 0]),
     codeNode('figma-validate-webhook', 'Figma - Validate Webhook', code('figma-validate-webhook.js'), [260, 0]),
     respondNode('respond-to-figma', 'Respond to Figma', [520, 0]),
@@ -169,6 +173,9 @@ const figmaMakeDesignHandoff = {
     codeNode('slack-finalize-handoff', 'Slack - Finalize Handoff', code('slack-finalize-handoff.js'), [1560, 520]),
   ],
   connections: connectPairs([
+    ['Figma MCP Request Webhook', 'Figma - Validate MCP Request'],
+    ['Figma - Validate MCP Request', 'Respond to Request'],
+    ['Respond to Request', 'Jira - Verify Handoff Issue'],
     ['Figma Version Webhook', 'Figma - Validate Webhook'],
     ['Figma - Validate Webhook', 'Respond to Figma'],
     ['Respond to Figma', 'Jira - Verify Handoff Issue'],

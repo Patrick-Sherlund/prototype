@@ -65,6 +65,8 @@ function stageLabel(stage) {
   const labels = {
     JIRA_KEY_PARSE: 'Jira key parsing',
     FIGMA_WEBHOOK_VALIDATE: 'Figma webhook validation',
+    FIGMA_REQUEST_VALIDATE: 'Figma request validation',
+    FIGMA_SOURCE_RESOLVED: 'Figma Make source',
     JIRA_VALIDATED: 'Jira issue validation',
     CLAUDE_STARTED: 'Claude Code handoff start',
     figma_capture: 'Figma Design capture',
@@ -104,6 +106,8 @@ if (input.slackThreadTs) {
 }
 
 const sourceLabel = safeText(input.figmaVersionLabel, `${input.jiraIssueKey || 'Figma'} version`);
+const requestText = safeText(input.requestText, '');
+const sourceUrl = safeText(input.figmaMakeUrl, '');
 const text = input.requestFailed
   ? [
       `Design handoff failed for ${input.jiraIssueKey || 'Figma version'}`,
@@ -118,10 +122,14 @@ const text = input.requestFailed
   : [
       `\u{1F3A8} Figma design handoff started for ${input.jiraIssueKey}`,
       '',
+      requestText ? 'Request:' : '',
+      requestText,
+      requestText ? '' : '',
       'Source:',
       sourceLabel,
+      sourceUrl,
       '',
-      'The automation is converting the latest Figma Make prototype into an editable Figma Design and linking it to Jira.',
+      'The automation is using Figma MCP to read the Figma Make prototype context and create or update an editable Figma Design artifact.',
     ].join('\n');
 
 try {

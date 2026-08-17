@@ -6,6 +6,22 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 loadDotEnv(resolve(repoRoot, '.env'));
 
 const args = parseArgs(process.argv.slice(2));
+const enabled = ['1', 'true', 'yes', 'on'].includes(String(process.env.FIGMA_WEBHOOK_ENABLED || 'false').toLowerCase());
+if (!enabled && !args.force) {
+  console.log(
+    JSON.stringify(
+      {
+        ok: true,
+        skipped: true,
+        reason: 'FIGMA_WEBHOOK_ENABLED is not true; webhook registration is optional for the MCP-only POC.',
+      },
+      null,
+      2,
+    ),
+  );
+  process.exit(0);
+}
+
 const fileKey = args['file-key'] || process.env.FIGMA_MAKE_FILE_KEY;
 const endpoint =
   args.endpoint ||

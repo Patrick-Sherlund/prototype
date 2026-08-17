@@ -71,6 +71,21 @@ try {
   ];
 }
 
+if (String(env('FIGMA_WEBHOOK_ENABLED') || 'false').toLowerCase() !== 'true') {
+  return [
+    {
+      json: {
+        ackStatusCode: 200,
+        ackText: 'figma webhook disabled',
+        shouldProcess: false,
+        requestFailed: false,
+        ignored: true,
+        ignoreReason: 'figma_webhook_disabled',
+      },
+    },
+  ];
+}
+
 const configuredPasscode = env('FIGMA_WEBHOOK_PASSCODE');
 if (!configuredPasscode) {
   return [

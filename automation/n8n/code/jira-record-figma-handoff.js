@@ -107,6 +107,7 @@ function persistDesign(input, status) {
     figmaDesignFileKey: input.figmaDesignFileKey || input.design?.fileKey || fileKeyFromDesignUrl(input.figmaDesignUrl),
     figmaDesignUrl: input.figmaDesignUrl || input.design?.url || '',
     figmaDesignNodeId: input.figmaDesignNodeId || input.design?.nodeId || '',
+    figmaDesignCreationTool: input.figmaDesignCreationTool || input.design?.creationTool || '',
   };
 
   if (input.jiraIssueKey && design.figmaDesignUrl) {
@@ -127,6 +128,7 @@ function persistDesign(input, status) {
         url: design.figmaDesignUrl,
         fileKey: design.figmaDesignFileKey,
         nodeId: design.figmaDesignNodeId,
+        creationTool: design.figmaDesignCreationTool,
       },
       slack: {
         channel: input.slackChannelId || env('SLACK_CHANNEL_ID') || '',
@@ -147,6 +149,7 @@ async function updateJira(input) {
   const issueKey = input.jiraIssueKey;
   const versionLabel = input.figmaVersionLabel || `${input.figmaMakeFileKey || 'Figma Make'} ${input.figmaVersionId || ''}`.trim();
   const figmaUrl = input.figmaDesignUrl || input.design?.url;
+  const requestText = input.requestText || input.figmaVersionDescription || '';
   const makeSource = [
     input.figmaMakeUrl ? `Figma Make: ${input.figmaMakeUrl}` : '',
     input.figmaMakeFileKey ? `Figma Make file key: ${input.figmaMakeFileKey}` : '',
@@ -158,6 +161,9 @@ async function updateJira(input) {
     body: JSON.stringify({
       body: docParagraphs([
         'Design handoff generated automatically from Figma Make.',
+        '',
+        'Request:',
+        requestText,
         '',
         'Source:',
         versionLabel,

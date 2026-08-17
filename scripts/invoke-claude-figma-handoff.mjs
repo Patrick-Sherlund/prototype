@@ -25,11 +25,16 @@ const issue = args.issue || 'SYSCO-1';
 const fileKey = args['file-key'] || process.env.FIGMA_MAKE_FILE_KEY;
 const versionId = args['version-id'] || `manual-${Date.now()}`;
 const handoffId = `${fileKey}:${versionId}`;
+const request =
+  args.request ||
+  "Using the existing Figma Make SAR Questionnaire prototype as context, create or update the corresponding Figma Design screen so the intro/start questionnaire area includes a compact 'Estimated time: 8 min' badge near the primary start action. Do not redesign unrelated areas.";
 
 const payload = {
   jira_key: issue,
   jira_summary: args.summary || 'Manual Figma handoff test',
   jira_description: args.description || '',
+  request_text: request,
+  trigger_source: 'direct-worker-test',
   jira_url: `${(process.env.JIRA_BASE_URL || '').replace(/\/$/, '')}/browse/${issue}`,
   correlation_id: `${issue}-${versionId}`.toUpperCase().replace(/[^A-Z0-9-]+/g, '-'),
   handoff_id: handoffId,
