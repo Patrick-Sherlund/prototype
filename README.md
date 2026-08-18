@@ -1,35 +1,36 @@
-# Figma MCP Design Handoff Automation
+# Figma Make Full Design Sync Automation
 
-Rapid prototype automation for the free-tier POC:
+Rapid prototype automation for synchronizing a Figma Make prototype into one canonical editable Figma Design file:
 
 ```text
-Slack / Jira design request
-  -> n8n request webhook
+Figma Make named version or manual POC request
+  -> n8n
   -> one threaded Slack status conversation
   -> local Claude Code worker
   -> authenticated Figma MCP
-  -> read Figma Make resources/context
-  -> create or update editable Figma Design artifact
+  -> discover Make views
+  -> generate_figma_design into one canonical Figma Design file
   -> Jira update
   -> final Slack thread reply
 ```
 
 ## Responsibilities
 
-- Figma Make: source/context artifact for the prototype.
-- n8n: deterministic orchestration, idempotency, Jira, and Slack.
+- Figma Make: authoritative source/context for the prototype.
+- Runnable/published Make URL: rendered UI used for full-view capture when required.
+- n8n: orchestration, idempotency, Slack, Jira, and persistent sync state.
 - Claude Code: Figma MCP execution agent only.
-- Figma Design: writable downstream handoff artifact.
+- Figma Design: one canonical downstream editable sync artifact.
 - Jira: work tracking and traceability.
-- Slack: request/status visibility in one thread per handoff.
+- Slack: status visibility in one thread per accepted sync.
 
-Figma REST webhooks and authenticated browser automation of the Figma Make editor are optional upgrade paths. GitHub Actions, repository code generation, PR creation, and preview deployment are not part of this product workflow.
+Claude must not modify repository source code, update Jira, send Slack messages, create PRs, or edit the Figma Make source during runtime handoffs.
 
 ## Quick Start
 
 ```powershell
 Copy-Item .env.example .env
-# Fill .env with Jira, Slack, n8n, Claude worker, and Figma Make values.
+# Fill .env with Jira, Slack, n8n, Claude worker, Figma Make, and canonical Design values.
 npm run build:workflows
 npm run test:figma
 docker compose up -d
@@ -37,30 +38,54 @@ docker compose up -d
 npm run worker:start
 ```
 
-Run the MCP-only POC request:
+Run the request-driven POC:
 
 ```powershell
 npm run figma:request:test -- --issue SYSCO-20
 ```
 
-## Endpoints
+## Canonical Design File
 
-- Primary MCP request: `<N8N_WEBHOOK_URL>/webhook/poc/figma/handoff/request`
-- Worker callback: `<N8N_WEBHOOK_URL>/webhook/poc/figma/handoff/completion`
-- Optional Figma webhook: `<N8N_WEBHOOK_URL>/webhook/poc/figma/version-update`
-- Local worker health: `http://127.0.0.1:8787/healthz`
+Set these when the canonical Design file exists:
+
+```env
+FIGMA_DESIGN_FILE_URL=https://www.figma.com/design/...
+FIGMA_DESIGN_FILE_KEY=...
+FIGMA_SYNC_PAGE_NAME=Figma Make Screens
+```
+
+When `FIGMA_DESIGN_FILE_URL` or `FIGMA_DESIGN_FILE_KEY` is configured, the workflow must target that file and must fail if Claude/Figma MCP cannot edit it. It must not silently create another file.
+
+If no canonical file exists, `FIGMA_DESIGN_BOOTSTRAP_ALLOWED=true` allows one bootstrap creation. n8n then persists the returned URL/key in workflow static data and subsequent runs use SYNC mode.
+
+## Rendered Capture
+
+Full sync requires a renderable Make experience for every discovered view:
+
+```env
+FIGMA_MAKE_URL=https://www.figma.com/make/...
+FIGMA_MAKE_PUBLISHED_URL=https://...
+```
+
+Figma MCP Make resources are used to discover routes, screens, tabs, steps, dialogs, and states. The runnable/published URL is used for deterministic navigation and `generate_figma_design` capture. If no runnable URL exists and Figma MCP cannot render/navigate the Make prototype directly, the sync fails with a concrete `figma_render` blocker.
 
 ## Validation
 
 ```powershell
 npm run validate:workflows
 npm run test:figma
-npm run figma:request:test -- --issue SYSCO-20
 claude auth status
 claude mcp list
 ```
 
-Mocked tests validate orchestration logic only. Real acceptance requires Claude Code authenticated to Figma MCP, Make context read through MCP, an editable Figma Design artifact created or updated, Jira updated, and one Slack parent thread with replies.
+Mocked tests validate orchestration and JSON handling only. Real acceptance requires:
+
+- full Make project inspected,
+- view manifest generated,
+- every reachable view captured or explicitly skipped,
+- all captures in one canonical Design file,
+- second sync reuses the same file and reconciles mapped frames,
+- Jira and Slack report the same canonical Design URL and coverage counts.
 
 Detailed setup and demo procedure:
 

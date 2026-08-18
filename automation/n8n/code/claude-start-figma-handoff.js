@@ -132,6 +132,13 @@ try {
     destination: {
       figma_design_file_key: input.figmaDestinationFileKey || '',
       figma_design_url: input.figmaDestinationUrl || '',
+      sync_mode: input.figmaSyncMode || '',
+      sync_page_name: input.figmaSyncPageName || 'Figma Make Screens',
+      canonical_configured: Boolean(input.figmaCanonicalConfigured),
+      bootstrap_allowed: input.figmaDesignBootstrapAllowed !== false,
+      archive_removed_views: input.figmaArchiveRemovedViews !== false,
+      view_mappings: input.figmaViewMappings || {},
+      archived_view_mappings: input.figmaArchivedViewMappings || {},
     },
   };
 

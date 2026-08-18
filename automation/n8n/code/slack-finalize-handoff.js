@@ -69,11 +69,30 @@ function stageLabel(stage) {
     figma_mcp_auth: 'Figma MCP authentication',
     figma_make_context: 'Figma Make context',
     figma_render: 'Figma Make render',
+    figma_view_discovery: 'Figma Make view discovery',
     figma_capture: 'Figma Design capture',
+    figma_canonical_file: 'Canonical Figma Design file',
     generate_figma_design: 'Editable Figma Design generation',
     JIRA_COMPLETED: 'Jira update',
   };
   return labels[stage] || stage || 'Unknown';
+}
+
+function coverage(input) {
+  const value = input.syncCoverage || input.sync?.coverage || {};
+  const number = (name) => {
+    const parsed = Number(value[name]);
+    return Number.isFinite(parsed) ? Math.floor(parsed) : 0;
+  };
+  return {
+    discovered: number('discovered'),
+    captured: number('captured'),
+    updated: number('updated'),
+    created: number('created'),
+    skipped: number('skipped'),
+    archived: number('archived'),
+    failed: number('failed'),
+  };
 }
 
 function finalText(input) {
@@ -83,6 +102,7 @@ function finalText(input) {
   const versionLabel = input.figmaVersionLabel || `${input.figmaMakeFileKey || 'Figma Make'} ${input.figmaVersionId || ''}`.trim();
   const requestText = input.requestText || input.figmaVersionDescription || '';
   const makeUrl = input.figmaMakeUrl || '';
+  const counts = coverage(input);
 
   if (input.requestFailed) {
     if (input.failureStage === 'JIRA_COMPLETED' && figmaUrl) {
@@ -109,13 +129,18 @@ function finalText(input) {
       '',
       input.figmaReady ? 'The generated Figma Design has been preserved.' : 'Jira was not modified.',
       '',
+      `Views discovered: ${counts.discovered}`,
+      `Views captured: ${counts.captured}`,
+      `Views skipped: ${counts.skipped}`,
+      `Failures: ${counts.failed}`,
+      '',
       'Check the workflow execution for details.',
     ].join('\n');
   }
 
   if (input.figmaReady && input.jiraUpdated) {
     return [
-      `Design handoff complete for ${issueKey}`,
+      `Figma sync complete for ${issueKey}`,
       '',
       'Request:',
       requestText,
@@ -126,8 +151,15 @@ function finalText(input) {
       'Figma Make version:',
       versionLabel,
       '',
-      'Editable Figma Design:',
+      'Canonical Figma Design:',
       figmaUrl,
+      '',
+      `Views discovered: ${counts.discovered}`,
+      `Views captured: ${counts.captured}`,
+      `Views updated: ${counts.updated}`,
+      `Views skipped: ${counts.skipped}`,
+      `Views archived: ${counts.archived}`,
+      `Failures: ${counts.failed}`,
       '',
       'Jira:',
       jiraUrl,

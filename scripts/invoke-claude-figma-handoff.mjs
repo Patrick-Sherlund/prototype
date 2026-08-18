@@ -27,7 +27,7 @@ const versionId = args['version-id'] || `manual-${Date.now()}`;
 const handoffId = `${fileKey}:${versionId}`;
 const request =
   args.request ||
-  "Using the existing Figma Make SAR Questionnaire prototype as context, create or update the corresponding Figma Design screen so the intro/start questionnaire area includes a compact 'Estimated time: 8 min' badge near the primary start action. Do not redesign unrelated areas.";
+  'Run a full Figma Make to Figma Design synchronization. Discover every meaningful SAR Questionnaire view/state, capture every reachable view, and update the canonical Figma Design file without creating duplicate screen frames.';
 
 const payload = {
   jira_key: issue,
@@ -52,8 +52,23 @@ const payload = {
     figma_make_published_url: args['published-url'] || process.env.FIGMA_MAKE_PUBLISHED_URL || '',
   },
   destination: {
-    figma_design_file_key: args['destination-file-key'] || process.env.FIGMA_DESTINATION_FILE_KEY || '',
-    figma_design_url: args['destination-url'] || process.env.FIGMA_DESTINATION_FILE_URL || '',
+    figma_design_file_key:
+      args['destination-file-key'] ||
+      process.env.FIGMA_DESIGN_FILE_KEY ||
+      process.env.FIGMA_DESTINATION_FILE_KEY ||
+      '',
+    figma_design_url:
+      args['destination-url'] ||
+      process.env.FIGMA_DESIGN_FILE_URL ||
+      process.env.FIGMA_DESTINATION_FILE_URL ||
+      '',
+    sync_mode: args['sync-mode'] || '',
+    sync_page_name: process.env.FIGMA_SYNC_PAGE_NAME || 'Figma Make Screens',
+    canonical_configured: Boolean(process.env.FIGMA_DESIGN_FILE_URL || process.env.FIGMA_DESIGN_FILE_KEY),
+    bootstrap_allowed: process.env.FIGMA_DESIGN_BOOTSTRAP_ALLOWED !== 'false',
+    archive_removed_views: process.env.FIGMA_ARCHIVE_REMOVED_VIEWS !== 'false',
+    view_mappings: {},
+    archived_view_mappings: {},
   },
 };
 

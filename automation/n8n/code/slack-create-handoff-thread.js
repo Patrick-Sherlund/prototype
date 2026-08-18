@@ -71,6 +71,8 @@ function stageLabel(stage) {
     CLAUDE_STARTED: 'Claude Code handoff start',
     figma_capture: 'Figma Design capture',
     figma_render: 'Figma Make render',
+    figma_view_discovery: 'Figma Make view discovery',
+    figma_canonical_file: 'Canonical Figma Design file',
     generate_figma_design: 'Editable Figma Design generation',
     JIRA_COMPLETED: 'Jira update',
   };
@@ -120,7 +122,7 @@ const text = input.requestFailed
       'Check the workflow execution for details.',
     ].join('\n')
   : [
-      `\u{1F3A8} Figma design handoff started for ${input.jiraIssueKey}`,
+      `\u{1F3A8} Figma Make sync started for ${input.jiraIssueKey}`,
       '',
       requestText ? 'Request:' : '',
       requestText,
@@ -129,7 +131,7 @@ const text = input.requestFailed
       sourceLabel,
       sourceUrl,
       '',
-      'The automation is using Figma MCP to read the Figma Make prototype context and create or update an editable Figma Design artifact.',
+      'The automation is using Figma MCP to discover the full Make prototype and synchronize its user-facing views into one canonical editable Figma Design file.',
     ].join('\n');
 
 try {

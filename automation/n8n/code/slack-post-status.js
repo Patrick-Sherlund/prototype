@@ -69,7 +69,38 @@ function conditionMatches(condition, input) {
   return false;
 }
 
+function coverage(input) {
+  const value = input.syncCoverage || input.sync?.coverage || {};
+  const number = (name) => {
+    const parsed = Number(value[name]);
+    return Number.isFinite(parsed) ? Math.floor(parsed) : 0;
+  };
+  return {
+    discovered: number('discovered'),
+    captured: number('captured'),
+    updated: number('updated'),
+    created: number('created'),
+    skipped: number('skipped'),
+    archived: number('archived'),
+    failed: number('failed'),
+  };
+}
+
+function syncViewStatusText(input) {
+  const views = input.syncViews || input.sync?.views || [];
+  if (!Array.isArray(views) || !views.length) return '';
+  return views
+    .slice(0, 20)
+    .map((view, index) => {
+      const status = String(view.status || '').toUpperCase();
+      const icon = status === 'FAILED' ? '❌' : status === 'SKIPPED' ? '↷' : '✅';
+      return `${icon} ${index + 1}. ${view.name || view.id || 'View'}${view.reason ? ` - ${view.reason}` : ''}`;
+    })
+    .join('\n');
+}
+
 function replacementMap(input) {
+  const counts = coverage(input);
   return {
     jiraIssueKey: input.jiraIssueKey || '',
     jiraIssueUrl: input.jiraIssueUrl || '',
@@ -80,6 +111,16 @@ function replacementMap(input) {
     failureStage: input.failureStage || input.stage || '',
     errorMessage: input.errorMessage || '',
     correlationId: input.correlationId || '',
+    syncMode: input.syncMode || input.sync?.mode || '',
+    syncPageName: input.syncPageName || input.sync?.pageName || 'Figma Make Screens',
+    viewsDiscovered: String(counts.discovered),
+    viewsCaptured: String(counts.captured),
+    viewsUpdated: String(counts.updated),
+    viewsCreated: String(counts.created),
+    viewsSkipped: String(counts.skipped),
+    viewsArchived: String(counts.archived),
+    viewsFailed: String(counts.failed),
+    syncViewStatusText: syncViewStatusText(input),
   };
 }
 

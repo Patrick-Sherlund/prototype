@@ -208,7 +208,7 @@ async function testSlackThreadPropagation() {
   assert.equal(parent[0].json.slackThreadTs, '1710000000.000001');
   assert.equal(calls[0].channel, 'C0BP62TK3PD');
   assert.equal(calls[0].thread_ts, undefined);
-  assert.match(calls[0].text, /Figma design handoff started for SYSCO-14/);
+  assert.match(calls[0].text, /Figma Make sync started for SYSCO-14/);
 
   const statusSource =
     'const STATUS = {"condition":"jiraVerified","messages":["Jira issue {{jiraIssueKey}} verified."]};\n' +
@@ -245,17 +245,27 @@ async function testCallbackAndDestinationMapping() {
         fileKey: 'DESIGN14',
         nodeId: '10:20',
       },
+      sync: {
+        mode: 'BOOTSTRAP',
+        pageName: 'Figma Make Screens',
+        manifest: { views: [{ id: 'dashboard', name: 'Dashboard', route: '/', navigation: [], captureType: 'route' }] },
+        coverage: { discovered: 1, captured: 1, updated: 0, created: 1, skipped: 0, archived: 0, failed: 0 },
+        views: [{ id: 'dashboard', name: 'Dashboard', status: 'CREATED', nodeId: '10:20' }],
+        viewMappings: { dashboard: { nodeId: '10:20', name: 'Dashboard', route: '/', pageName: 'Figma Make Screens' } },
+      },
     },
   });
   assert.equal(callback[0].json.figmaReady, true);
   assert.equal(callback[0].json.figmaDesignUrl, 'https://www.figma.com/design/DESIGN14');
+  assert.equal(callback[0].json.syncCoverage.discovered, 1);
 
   const staticData = {
-    figmaDesignMappings: {
-      'SYSCO-14': {
-        figmaDesignFileKey: 'DESIGN14',
-        figmaDesignUrl: 'https://www.figma.com/design/DESIGN14',
-      },
+    figmaCanonicalDesign: {
+      figmaDesignFileKey: 'DESIGN14',
+      figmaDesignUrl: 'https://www.figma.com/design/DESIGN14',
+    },
+    figmaViewMappings: {
+      dashboard: { nodeId: '10:20', name: 'Dashboard', route: '/', pageName: 'Figma Make Screens' },
     },
   };
   const resolved = await runCode(
@@ -270,7 +280,23 @@ async function testCallbackAndDestinationMapping() {
     { staticData },
   );
   assert.equal(resolved[0].json.figmaDestinationFromMapping, true);
+  assert.equal(resolved[0].json.figmaSyncMode, 'SYNC');
   assert.equal(resolved[0].json.figmaDestinationFileKey, 'DESIGN14');
+  assert.equal(resolved[0].json.figmaViewMappings.dashboard.nodeId, '10:20');
+
+  const bootstrap = await runCode(
+    'figma-resolve-source.js',
+    {
+      shouldProcess: true,
+      jiraIssueKey: 'SYSCO-14',
+      handoffId: 'MAKE:v4',
+      figmaMakeFileKey: 'MAKE',
+      figmaVersionId: 'v4',
+    },
+    { staticData: {} },
+  );
+  assert.equal(bootstrap[0].json.figmaSyncMode, 'BOOTSTRAP');
+  assert.equal(bootstrap[0].json.figmaDesignBootstrapAllowed, true);
 
   const duplicateFailure = await runCode(
     'figma-callback-verify.js',
@@ -315,7 +341,7 @@ async function testClaudeJsonParsing() {
   assert.equal(parsed.success, true);
 
   const normalized = normalizeClaudeFigmaResult(
-    '{"success":true,"jiraKey":"SYSCO-14","source":{"figmaMakeFileKey":"MAKE","figmaVersionId":"v1","figmaVersionLabel":"SYSCO-14 | Ready for Design"},"design":{"url":"https://www.figma.com/design/DESIGN14","fileKey":"DESIGN14","nodeId":"1:2"}}',
+    '{"success":true,"jiraKey":"SYSCO-14","source":{"figmaMakeFileKey":"MAKE","figmaVersionId":"v1","figmaVersionLabel":"SYSCO-14 | Ready for Design"},"design":{"url":"https://www.figma.com/design/DESIGN14","fileKey":"DESIGN14","nodeId":"1:2"},"sync":{"mode":"SYNC","pageName":"Figma Make Screens","manifest":{"views":[{"id":"dashboard","name":"Dashboard"}]},"coverage":{"discovered":1,"captured":1,"updated":1,"created":0,"skipped":0,"archived":0,"failed":0},"views":[{"id":"dashboard","name":"Dashboard","status":"UPDATED","nodeId":"1:2"}],"viewMappings":{"dashboard":{"nodeId":"1:2","name":"Dashboard"}}}}',
     {
       jira_key: 'SYSCO-14',
       source: {
@@ -327,6 +353,17 @@ async function testClaudeJsonParsing() {
   );
   assert.equal(normalized.success, true);
   assert.equal(normalized.design.fileKey, 'DESIGN14');
+  assert.equal(normalized.sync.coverage.discovered, 1);
+
+  const failedCoverage = normalizeClaudeFigmaResult(
+    '{"success":true,"jiraKey":"SYSCO-14","source":{"figmaMakeFileKey":"MAKE","figmaVersionId":"v1"},"design":{"url":"https://www.figma.com/design/DESIGN14"},"sync":{"coverage":{"discovered":2,"captured":1,"skipped":0,"failed":1},"manifest":{"views":[{"id":"a","name":"A"},{"id":"b","name":"B"}]},"views":[{"id":"a","name":"A","status":"UPDATED"},{"id":"b","name":"B","status":"FAILED","reason":"no route"}]}}',
+    {
+      jira_key: 'SYSCO-14',
+      source: { figma_make_file_key: 'MAKE', figma_version_id: 'v1', figma_version_label: '' },
+    },
+  );
+  assert.equal(failedCoverage.success, false);
+  assert.equal(failedCoverage.stage, 'figma_capture');
 
   const failure = normalizeClaudeFigmaResult('{"success":false,"jiraKey":"SYSCO-14","stage":"figma_render","error":"Browser failed"}', {
     jira_key: 'SYSCO-14',
@@ -390,6 +427,11 @@ async function testJiraRetryAndPersistence() {
       figmaDesignFileKey: 'DESIGN14',
       slackChannelId: 'C0BP62TK3PD',
       slackThreadTs: '1710000000.000001',
+      syncCoverage: { discovered: 2, captured: 2, updated: 1, created: 1, skipped: 0, archived: 0, failed: 0 },
+      syncViewMappings: {
+        dashboard: { nodeId: '10:20', name: 'Dashboard', route: '/', pageName: 'Figma Make Screens' },
+        questionnaire: { nodeId: '10:30', name: 'SAR Questionnaire', route: '/questionnaire', pageName: 'Figma Make Screens' },
+      },
     },
     { staticData, fetch },
   );
@@ -397,6 +439,8 @@ async function testJiraRetryAndPersistence() {
   assert.equal(commentAttempts, 3);
   assert.equal(result[0].json.jiraUpdated, true);
   assert.equal(staticData.figmaDesignMappings['SYSCO-14'].figmaDesignFileKey, 'DESIGN14');
+  assert.equal(staticData.figmaCanonicalDesign.figmaDesignFileKey, 'DESIGN14');
+  assert.equal(staticData.figmaViewMappings.dashboard.nodeId, '10:20');
   assert.equal(staticData.figmaHandoffs['MAKE:v1'].status, 'completed');
 }
 

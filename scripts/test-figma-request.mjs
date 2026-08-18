@@ -12,7 +12,7 @@ const endpoint =
 const issue = args.issue || 'SYSCO-20';
 const request =
   args.request ||
-  "Using the existing Figma Make SAR Questionnaire prototype as context, create or update the corresponding Figma Design screen so the intro/start questionnaire area includes a compact 'Estimated time: 8 min' badge near the primary start action. Do not redesign unrelated areas.";
+  'Run a full Figma Make to Figma Design synchronization. Discover every meaningful SAR Questionnaire view/state, capture every reachable view, and update the canonical Figma Design file without creating duplicate screen frames.';
 const makeUrl = args['make-url'] || process.env.FIGMA_MAKE_URL || '';
 const fileKey = args['file-key'] || process.env.FIGMA_MAKE_FILE_KEY || fileKeyFromMakeUrl(makeUrl);
 const requestId = args['request-id'] || `mcp-request-${Date.now()}`;
@@ -30,6 +30,7 @@ const payload = {
   figmaMakeUrl: makeUrl,
   figmaMakeFileKey: fileKey,
   label: `${issue} | MCP Design Request`,
+  figmaMakePublishedUrl: args['published-url'] || process.env.FIGMA_MAKE_PUBLISHED_URL || '',
 };
 
 const headers = { 'Content-Type': 'application/json' };

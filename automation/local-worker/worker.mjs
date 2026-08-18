@@ -151,13 +151,15 @@ async function runFigmaHandoffJob(job) {
     writeFileSync(join(runDir, 'claude-result.txt'), redact(resultText), 'utf8');
     const result = normalizeClaudeFigmaResult(resultText, job);
     if (!result.success) {
-      throw stageError(result.stage, result.error);
+      throw stageError(result.stage, result.error, result);
     }
 
     state.stage = 'figma_design_created';
     state.figmaDesignUrl = result.design.url;
     state.figmaDesignFileKey = result.design.fileKey;
     state.figmaDesignNodeId = result.design.nodeId;
+    writeFileSync(join(runDir, 'view-manifest.json'), redact(JSON.stringify(result.sync?.manifest || { views: [] }, null, 2)), 'utf8');
+    writeFileSync(join(runDir, 'sync-result.json'), redact(JSON.stringify(result.sync || {}, null, 2)), 'utf8');
     log(`FIGMA_DESIGN_CREATED url=${state.figmaDesignUrl}`);
 
     await sendCallback(job, state, {
@@ -165,12 +167,17 @@ async function runFigmaHandoffJob(job) {
       jiraKey: job.jira_key,
       source: result.source,
       design: result.design,
+      sync: result.sync,
     }, log);
     log(`N8N_CALLBACK_SENT status=success jira=${job.jira_key}`);
   } catch (error) {
     const stage = error.stage || state.stage || 'figma_capture';
     const message = safeError(error.message || error);
     log(`FAILED stage=${stage} error=${message}`);
+    if (error.details?.sync) {
+      writeFileSync(join(runDir, 'view-manifest.json'), redact(JSON.stringify(error.details.sync.manifest || { views: [] }, null, 2)), 'utf8');
+      writeFileSync(join(runDir, 'sync-result.json'), redact(JSON.stringify(error.details.sync || {}, null, 2)), 'utf8');
+    }
     await sendCallback(
       job,
       { ...state, stage },
@@ -179,6 +186,8 @@ async function runFigmaHandoffJob(job) {
         jiraKey: job.jira_key,
         stage,
         error: message,
+        design: error.details?.design,
+        sync: error.details?.sync,
       },
       log,
     ).catch((callbackError) => {
@@ -243,6 +252,7 @@ async function sendCallback(job, state, result, log) {
       fileKey: state.figmaDesignFileKey,
       nodeId: state.figmaDesignNodeId,
     },
+    sync: result.sync || {},
     error: result.error || '',
   };
 
@@ -305,6 +315,13 @@ function normalizeFigmaJob(input) {
     destination: {
       figma_design_file_key: String(destination.figma_design_file_key || ''),
       figma_design_url: String(destination.figma_design_url || ''),
+      sync_mode: String(destination.sync_mode || ''),
+      sync_page_name: String(destination.sync_page_name || 'Figma Make Screens'),
+      canonical_configured: Boolean(destination.canonical_configured),
+      bootstrap_allowed: destination.bootstrap_allowed !== false,
+      archive_removed_views: destination.archive_removed_views !== false,
+      view_mappings: normalizeRecord(destination.view_mappings),
+      archived_view_mappings: normalizeRecord(destination.archived_view_mappings),
     },
     browser_rendering_allowed: figmaPlaywrightEnabled,
   };
@@ -412,10 +429,16 @@ function summarizeOutput(result) {
   return safeError(`${result.stderr || ''}\n${result.stdout || ''}`.trim()).slice(0, 1200);
 }
 
-function stageError(stage, message) {
+function stageError(stage, message, details = null) {
   const error = new Error(message);
   error.stage = stage;
+  if (details) error.details = details;
   return error;
+}
+
+function normalizeRecord(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return value;
 }
 
 function safeSlug(value) {

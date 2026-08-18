@@ -8,6 +8,17 @@ function designUrlFromKey(fileKey) {
   return fileKey ? `https://www.figma.com/design/${encodeURIComponent(fileKey)}` : '';
 }
 
+function designKeyFromUrl(url) {
+  const match = String(url || '').match(/figma\.com\/design\/([^/?#]+)/i);
+  return match ? decodeURIComponent(match[1]) : '';
+}
+
+function boolEnv(name, fallback = false) {
+  const value = env(name);
+  if (value === undefined || value === '') return fallback;
+  return ['1', 'true', 'yes', 'on'].includes(String(value).toLowerCase());
+}
+
 function markHandoff(input, patch) {
   if (!input.handoffId) return;
   const staticData = $getWorkflowStaticData('global');
@@ -25,7 +36,9 @@ if (input.retryJiraOnly) return [{ json: input }];
 
 const staticData = $getWorkflowStaticData('global');
 staticData.figmaDesignMappings = staticData.figmaDesignMappings || {};
-const mapping = staticData.figmaDesignMappings[input.jiraIssueKey] || {};
+staticData.figmaCanonicalDesign = staticData.figmaCanonicalDesign || {};
+staticData.figmaViewMappings = staticData.figmaViewMappings || {};
+staticData.figmaArchivedViewMappings = staticData.figmaArchivedViewMappings || {};
 
 const configuredMakeFileKey = clean(env('FIGMA_MAKE_FILE_KEY'), 200);
 const incomingMakeFileKey = clean(input.figmaMakeFileKey, 200);
@@ -40,8 +53,45 @@ const source = {
   configuredMakeFileKeyMatched: !configuredMakeFileKey || configuredMakeFileKey === incomingMakeFileKey,
 };
 
-const destinationFileKey = clean(mapping.figmaDesignFileKey || env('FIGMA_DESTINATION_FILE_KEY'), 200);
-const destinationUrl = clean(mapping.figmaDesignUrl || env('FIGMA_DESTINATION_FILE_URL') || designUrlFromKey(destinationFileKey), 2000);
+const configuredDestinationUrl = clean(env('FIGMA_DESIGN_FILE_URL') || env('FIGMA_DESTINATION_FILE_URL'), 2000);
+const configuredDestinationKey = clean(env('FIGMA_DESIGN_FILE_KEY') || env('FIGMA_DESTINATION_FILE_KEY') || designKeyFromUrl(configuredDestinationUrl), 200);
+const persistedDestinationUrl = clean(staticData.figmaCanonicalDesign.figmaDesignUrl || '', 2000);
+const persistedDestinationKey = clean(staticData.figmaCanonicalDesign.figmaDesignFileKey || designKeyFromUrl(persistedDestinationUrl), 200);
+const destinationConfigured = Boolean(configuredDestinationUrl || configuredDestinationKey);
+const destinationFileKey = destinationConfigured ? configuredDestinationKey : persistedDestinationKey;
+const destinationUrl = destinationConfigured
+  ? configuredDestinationUrl || designUrlFromKey(configuredDestinationKey)
+  : persistedDestinationUrl || designUrlFromKey(persistedDestinationKey);
+const bootstrapAllowed = boolEnv('FIGMA_DESIGN_BOOTSTRAP_ALLOWED', true);
+const syncMode = destinationUrl || destinationFileKey ? 'SYNC' : 'BOOTSTRAP';
+const syncPageName = clean(env('FIGMA_SYNC_PAGE_NAME') || 'Figma Make Screens', 200);
+const archiveRemovedViews = boolEnv('FIGMA_ARCHIVE_REMOVED_VIEWS', true);
+
+if (destinationConfigured && !destinationUrl && !destinationFileKey) {
+  return [
+    {
+      json: {
+        ...input,
+        requestFailed: true,
+        failureStage: 'FIGMA_SOURCE_RESOLVED',
+        errorMessage: 'FIGMA_DESIGN_FILE_URL or FIGMA_DESIGN_FILE_KEY was configured but no usable Figma Design file identifier could be derived.',
+      },
+    },
+  ];
+}
+
+if (syncMode === 'BOOTSTRAP' && !bootstrapAllowed) {
+  return [
+    {
+      json: {
+        ...input,
+        requestFailed: true,
+        failureStage: 'FIGMA_SOURCE_RESOLVED',
+        errorMessage: 'No canonical Figma Design file is configured or persisted, and FIGMA_DESIGN_BOOTSTRAP_ALLOWED is false.',
+      },
+    },
+  ];
+}
 
 markHandoff(input, {
   status: 'figma_source_resolved',
@@ -49,6 +99,9 @@ markHandoff(input, {
   destination: {
     figmaDesignFileKey: destinationFileKey,
     figmaDesignUrl: destinationUrl,
+    syncMode,
+    syncPageName,
+    canonicalConfigured: destinationConfigured,
   },
 });
 
@@ -58,7 +111,8 @@ console.log(
     correlationId: input.correlationId,
     handoffId: input.handoffId,
     fileKey: incomingMakeFileKey,
-    destinationReused: Boolean(mapping.figmaDesignUrl || mapping.figmaDesignFileKey),
+    syncMode,
+    destinationReused: syncMode === 'SYNC',
   }),
 );
 
@@ -70,7 +124,14 @@ return [
       ...source,
       figmaDestinationFileKey: destinationFileKey,
       figmaDestinationUrl: destinationUrl,
-      figmaDestinationFromMapping: Boolean(mapping.figmaDesignUrl || mapping.figmaDesignFileKey),
+      figmaDestinationFromMapping: Boolean(persistedDestinationUrl || persistedDestinationKey),
+      figmaCanonicalConfigured: destinationConfigured,
+      figmaSyncMode: syncMode,
+      figmaSyncPageName: syncPageName,
+      figmaDesignBootstrapAllowed: bootstrapAllowed,
+      figmaArchiveRemovedViews: archiveRemovedViews,
+      figmaViewMappings: staticData.figmaViewMappings,
+      figmaArchivedViewMappings: staticData.figmaArchivedViewMappings,
     },
   },
 ];

@@ -98,10 +98,31 @@ function fileKeyFromDesignUrl(url) {
   return match ? decodeURIComponent(match[1]) : '';
 }
 
+function numberOr(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? Math.floor(number) : fallback;
+}
+
+function syncCoverage(input) {
+  const coverage = input.syncCoverage || input.sync?.coverage || {};
+  return {
+    discovered: numberOr(coverage.discovered),
+    captured: numberOr(coverage.captured),
+    updated: numberOr(coverage.updated),
+    created: numberOr(coverage.created),
+    skipped: numberOr(coverage.skipped),
+    archived: numberOr(coverage.archived),
+    failed: numberOr(coverage.failed),
+  };
+}
+
 function persistDesign(input, status) {
   const staticData = $getWorkflowStaticData('global');
   staticData.figmaHandoffs = staticData.figmaHandoffs || {};
   staticData.figmaDesignMappings = staticData.figmaDesignMappings || {};
+  staticData.figmaCanonicalDesign = staticData.figmaCanonicalDesign || {};
+  staticData.figmaViewMappings = staticData.figmaViewMappings || {};
+  staticData.figmaArchivedViewMappings = staticData.figmaArchivedViewMappings || {};
 
   const design = {
     figmaDesignFileKey: input.figmaDesignFileKey || input.design?.fileKey || fileKeyFromDesignUrl(input.figmaDesignUrl),
@@ -111,11 +132,41 @@ function persistDesign(input, status) {
   };
 
   if (input.jiraIssueKey && design.figmaDesignUrl) {
+    // Backward-compatible alias for older nodes/scripts; the canonical design
+    // file is no longer per-Jira, but existing code may still read this map.
     staticData.figmaDesignMappings[input.jiraIssueKey] = {
       ...(staticData.figmaDesignMappings[input.jiraIssueKey] || {}),
       ...design,
       updatedAt: new Date().toISOString(),
     };
+  }
+
+  if (design.figmaDesignUrl || design.figmaDesignFileKey) {
+    staticData.figmaCanonicalDesign = {
+      ...staticData.figmaCanonicalDesign,
+      ...design,
+      pageName: input.syncPageName || input.sync?.pageName || staticData.figmaCanonicalDesign.pageName || 'Figma Make Screens',
+      sourceMakeFileKey: input.figmaMakeFileKey || staticData.figmaCanonicalDesign.sourceMakeFileKey || '',
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  const viewMappings = input.syncViewMappings || input.sync?.viewMappings || {};
+  if (viewMappings && typeof viewMappings === 'object') {
+    staticData.figmaViewMappings = {
+      ...staticData.figmaViewMappings,
+      ...viewMappings,
+    };
+  }
+
+  for (const archived of input.syncArchived || input.sync?.archived || []) {
+    const id = String(archived.id || archived.name || '').trim();
+    if (!id) continue;
+    staticData.figmaArchivedViewMappings[id] = {
+      ...archived,
+      archivedAt: new Date().toISOString(),
+    };
+    delete staticData.figmaViewMappings[id];
   }
 
   if (input.handoffId) {
@@ -129,6 +180,16 @@ function persistDesign(input, status) {
         fileKey: design.figmaDesignFileKey,
         nodeId: design.figmaDesignNodeId,
         creationTool: design.figmaDesignCreationTool,
+      },
+      sync: input.sync || {
+        mode: input.syncMode,
+        pageName: input.syncPageName,
+        manifest: input.syncManifest,
+        coverage: input.syncCoverage,
+        views: input.syncViews,
+        viewMappings: input.syncViewMappings,
+        archived: input.syncArchived,
+        failures: input.syncFailures,
       },
       slack: {
         channel: input.slackChannelId || env('SLACK_CHANNEL_ID') || '',
@@ -150,8 +211,10 @@ async function updateJira(input) {
   const versionLabel = input.figmaVersionLabel || `${input.figmaMakeFileKey || 'Figma Make'} ${input.figmaVersionId || ''}`.trim();
   const figmaUrl = input.figmaDesignUrl || input.design?.url;
   const requestText = input.requestText || input.figmaVersionDescription || '';
+  const coverage = syncCoverage(input);
   const makeSource = [
     input.figmaMakeUrl ? `Figma Make: ${input.figmaMakeUrl}` : '',
+    input.figmaMakePublishedUrl ? `Runnable Make: ${input.figmaMakePublishedUrl}` : '',
     input.figmaMakeFileKey ? `Figma Make file key: ${input.figmaMakeFileKey}` : '',
     input.figmaVersionId ? `Figma version ID: ${input.figmaVersionId}` : '',
   ].filter(Boolean);
@@ -160,17 +223,24 @@ async function updateJira(input) {
     method: 'POST',
     body: JSON.stringify({
       body: docParagraphs([
-        'Design handoff generated automatically from Figma Make.',
+        'Figma Make synchronization complete.',
         '',
         'Request:',
         requestText,
         '',
-        'Source:',
+        'Source Make:',
         versionLabel,
         ...makeSource,
         '',
-        'Editable Figma Design:',
+        'Canonical Design:',
         figmaUrl,
+        '',
+        `Views discovered: ${coverage.discovered}`,
+        `Views updated: ${coverage.updated}`,
+        `Views created: ${coverage.created}`,
+        `Views skipped: ${coverage.skipped}`,
+        `Views archived: ${coverage.archived}`,
+        `Failures: ${coverage.failed}`,
         '',
         'Generated by the automated Figma Make design-handoff workflow.',
         `Correlation ID: ${input.correlationId}`,

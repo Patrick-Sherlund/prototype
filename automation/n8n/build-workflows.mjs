@@ -119,7 +119,7 @@ const figmaMakeDesignHandoff = {
       'Slack - Figma Source Resolved',
       {
         condition: 'figmaResolved',
-        messages: ['\\u2705 Figma Make source resolved.'],
+        messages: ['\\u2705 Figma Make source resolved.\\n\\nSync mode: {{syncMode}}\\nCanonical page: {{syncPageName}}'],
       },
       [1820, 0],
     ),
@@ -129,8 +129,8 @@ const figmaMakeDesignHandoff = {
       {
         condition: 'processing',
         messages: [
-          '\\u{1F504} Accessing the latest Figma Make prototype.',
-          '\\u{1F504} Converting the current prototype into editable Figma Design layers.',
+          '\\u{1F504} Inspecting the full Figma Make project and building the view manifest.',
+          '\\u{1F504} Synchronizing discovered views into the canonical Figma Design file.',
         ],
       },
       [2080, 0],
@@ -156,7 +156,9 @@ const figmaMakeDesignHandoff = {
       'Slack - Figma Design Created',
       {
         condition: 'figmaReady',
-        messages: ['\\u2705 Editable Figma Design created successfully.\\n\\n{{figmaDesignUrl}}'],
+        messages: [
+          '\\u2705 Figma Make sync capture complete.\\n\\nDiscovered: {{viewsDiscovered}}\\nCaptured: {{viewsCaptured}}\\nUpdated: {{viewsUpdated}}\\nCreated: {{viewsCreated}}\\nSkipped: {{viewsSkipped}}\\nArchived: {{viewsArchived}}\\nFailed: {{viewsFailed}}\\n\\n{{syncViewStatusText}}\\n\\nDesign: {{figmaDesignUrl}}',
+        ],
       },
       [780, 520],
     ),
@@ -165,7 +167,7 @@ const figmaMakeDesignHandoff = {
       'Slack - Jira Updating',
       {
         condition: 'jiraUpdating',
-        messages: ['\\u{1F504} Updating {{jiraIssueKey}} with the new Figma Design.'],
+        messages: ['\\u{1F504} Updating {{jiraIssueKey}} with the canonical Figma Design sync result.'],
       },
       [1040, 520],
     ),
