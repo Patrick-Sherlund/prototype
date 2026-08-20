@@ -312,7 +312,8 @@ button {
 .cart-panel,
 .cards-panel,
 .delivery-panel,
-.catalog-panel {
+.catalog-panel,
+.history-panel {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
@@ -709,6 +710,95 @@ button {
   line-height: 1.4;
 }
 
+.history-panel {
+  margin: 0 30px 34px;
+  padding: 22px;
+}
+
+.history-list {
+  display: grid;
+  gap: 10px;
+}
+
+.history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.history-date {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.history-info strong {
+  display: block;
+  margin: 5px 0;
+  font-size: 16px;
+}
+
+.history-info p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.history-eta {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 8px;
+  border-radius: 999px;
+  padding: 4px 10px 4px 4px;
+  color: var(--green-600);
+  background: var(--green-100);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.eta-icon {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  color: #ffffff;
+  background: var(--green-600);
+  font-size: 11px;
+}
+
+.buy-again-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-shrink: 0;
+  min-height: 46px;
+  padding: 0 24px;
+  border: 0;
+  border-radius: 8px;
+  color: #ffffff;
+  background: var(--green-600);
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  box-shadow: 0 10px 22px rgba(79, 179, 63, 0.32);
+}
+
+.buy-again-button:hover {
+  background: #3fa830;
+}
+
 @media (max-width: 1260px) {
   .content-grid {
     grid-template-columns: 1fr;
@@ -751,7 +841,8 @@ button {
 
   .hero-band,
   .status-grid,
-  .content-grid {
+  .content-grid,
+  .history-panel {
     margin-left: 18px;
     margin-right: 18px;
   }
@@ -809,5 +900,14 @@ button {
 
   .metric-card {
     min-height: 96px;
+  }
+
+  .history-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .buy-again-button {
+    width: 100%;
   }
 }
